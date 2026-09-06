@@ -43,10 +43,34 @@ class SemanticAnalyzer(CompiscriptVisitor):
 
     def visitBlock(self, ctx: CompiscriptParser.BlockContext):
         self.symbol_table.enter_scope(ScopeKind.BLOCK)
-        for statement in ctx.statement():
-            self.visit(statement)
+        self._visit_statements_detecting_dead_code(ctx.statement())
         self.symbol_table.exit_scope()
         return None
+
+    def _visit_statements_detecting_dead_code(self, statements) -> None:
+        already_reported = False
+        block_has_terminated = False
+        for statement in statements:
+            if block_has_terminated and not already_reported:
+                token = statement.start
+                self.errors.report(
+                    token.line,
+                    token.column,
+                    "codigo inalcanzable: hay instrucciones despues de un 'return'/'break'/'continue' "
+                    "en el mismo bloque",
+                    "codigo-muerto",
+                )
+                already_reported = True
+            self.visit(statement)
+            if self._terminates_block(statement):
+                block_has_terminated = True
+
+    def _terminates_block(self, ctx: CompiscriptParser.StatementContext) -> bool:
+        return (
+            ctx.returnStatement() is not None
+            or ctx.breakStatement() is not None
+            or ctx.continueStatement() is not None
+        )
 
     def visitIfStatement(self, ctx: CompiscriptParser.IfStatementContext):
         condition_type = self.visit(ctx.expression())
@@ -94,8 +118,7 @@ class SemanticAnalyzer(CompiscriptVisitor):
             self.visit(increment_ctx)
 
         self._loop_depth += 1
-        for statement in ctx.block().statement():
-            self.visit(statement)
+        self._visit_statements_detecting_dead_code(ctx.block().statement())
         self._loop_depth -= 1
         return None
 
@@ -112,8 +135,7 @@ class SemanticAnalyzer(CompiscriptVisitor):
         )
         self._declare(loop_symbol, ctx)
         self._loop_depth += 1
-        for statement in ctx.block().statement():
-            self.visit(statement)
+        self._visit_statements_detecting_dead_code(ctx.block().statement())
         self._loop_depth -= 1
         self.symbol_table.exit_scope()
         return None
@@ -315,8 +337,7 @@ class SemanticAnalyzer(CompiscriptVisitor):
                 initialized=True,
             )
             self._declare(parameter_symbol, param_ctx)
-        for statement in ctx.block().statement():
-            self.visit(statement)
+        self._visit_statements_detecting_dead_code(ctx.block().statement())
         self._function_return_stack.pop()
         self.symbol_table.exit_scope()
 
