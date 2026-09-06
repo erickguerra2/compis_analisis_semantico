@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Compiscript IDE</title>
+  <link rel="preconnect" href="https://cdnjs.cloudflare.com">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/codemirror.min.css">
+  <link rel="stylesheet" href="{{ url_for('static', filename='styles.css') }}">
+</head>
+<body>
+  <header>
+    <div>
+      <p class="eyebrow">Analizador semántico</p>
+      <h1>Compiscript IDE</h1>
+    </div>
+    <button id="compile" type="button">Compilar <span>Ctrl + Enter</span></button>
+  </header>
+
+  <main>
+    <section class="editor-panel" aria-label="Editor de código">
+      <textarea id="source">class Counter {
+    let value: integer = 0;
+    function get(): integer {
+        return this.value;
+    }
+}
+
+let counter: Counter = new Counter();
+print(counter.get());</textarea>
+    </section>
+
+    <aside>
+      <nav class="tabs" aria-label="Resultados">
+        <button class="tab active" data-panel="errors">Errores <b id="error-count">0</b></button>
+        <button class="tab" data-panel="symbols">Símbolos</button>
+        <button class="tab" data-panel="tree">Árbol</button>
+      </nav>
+      <section id="errors" class="result-panel active" aria-live="polite"></section>
+      <section id="symbols" class="result-panel"></section>
+      <section id="tree" class="result-panel tree"></section>
+    </aside>
+  </main>
+
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/codemirror.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/codemirror/5.65.18/addon/mode/simple.min.js"></script>
+  <script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>

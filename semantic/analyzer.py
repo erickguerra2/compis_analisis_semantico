@@ -17,6 +17,7 @@ from .types import (
     STRING,
     VOID,
     ArrayType,
+    ClassType,
     FunctionType,
     IntegerType,
     Type,
@@ -36,6 +37,9 @@ class SemanticAnalyzer(CompiscriptVisitor):
         self._loop_depth = 0
         self._switch_depth = 0
         self._function_return_stack: List[Optional[Type]] = []
+        self._class_stack: List[Symbol] = []
+        self._this_class_stack: List[Symbol] = []
+        self._predeclared_class_members = {}
 
     def visitProgram(self, ctx: CompiscriptParser.ProgramContext):
         for statement in ctx.statement():
@@ -169,7 +173,7 @@ class SemanticAnalyzer(CompiscriptVisitor):
             )
             return None
         expected_type = self._function_return_stack[-1]
-        if expected_type is not None and value_type is not None and not is_assignable(expected_type, value_type):
+        if expected_type is not None and value_type is not None and not self._is_assignable(expected_type, value_type):
             token = ctx.start
             self.errors.report(
                 token.line,
@@ -185,7 +189,7 @@ class SemanticAnalyzer(CompiscriptVisitor):
         self._switch_depth += 1
         for switch_case in ctx.switchCase():
             case_type = self.visit(switch_case.expression())
-            if subject_type is not None and case_type is not None and not comparable_for_equality(
+            if subject_type is not None and case_type is not None and not self._comparable_for_equality(
                 subject_type, case_type
             ):
                 token = switch_case.expression().start
@@ -206,18 +210,20 @@ class SemanticAnalyzer(CompiscriptVisitor):
 
     def visitVariableDeclaration(self, ctx: CompiscriptParser.VariableDeclarationContext):
         declared_type = self._optional_type(ctx.typeAnnotation())
-        symbol = Symbol(
-            name=ctx.Identifier().getText(),
-            category=SymbolCategory.VARIABLE,
-            type=declared_type,
-            initialized=ctx.initializer() is not None,
-        )
-        self._declare(symbol, ctx)
+        symbol = self._predeclared_class_members.get(id(ctx))
+        if symbol is None:
+            symbol = Symbol(
+                name=ctx.Identifier().getText(),
+                category=SymbolCategory.VARIABLE,
+                type=declared_type,
+                initialized=ctx.initializer() is not None,
+            )
+            self._declare(symbol, ctx)
         if ctx.initializer() is not None:
             value_type = self.visit(ctx.initializer())
             if declared_type is None:
                 symbol.type = value_type
-            elif value_type is not None and not is_assignable(declared_type, value_type):
+            elif value_type is not None and not self._is_assignable(declared_type, value_type):
                 token = ctx.initializer().expression().start
                 self.errors.report(
                     token.line,
@@ -231,7 +237,7 @@ class SemanticAnalyzer(CompiscriptVisitor):
     def visitConstantDeclaration(self, ctx: CompiscriptParser.ConstantDeclarationContext):
         declared_type = self._optional_type(ctx.typeAnnotation())
         value_type = self.visit(ctx.expression())
-        if declared_type is not None and value_type is not None and not is_assignable(declared_type, value_type):
+        if declared_type is not None and value_type is not None and not self._is_assignable(declared_type, value_type):
             token = ctx.expression().start
             self.errors.report(
                 token.line,
@@ -240,18 +246,22 @@ class SemanticAnalyzer(CompiscriptVisitor):
                 f"'{declared_type.name}' con un valor de tipo '{value_type.name}'",
                 "asignacion-tipo-incompatible",
             )
-        symbol = Symbol(
-            name=ctx.Identifier().getText(),
-            category=SymbolCategory.CONSTANT,
-            type=declared_type if declared_type is not None else value_type,
-            initialized=True,
-        )
-        self._declare(symbol, ctx)
+        symbol = self._predeclared_class_members.get(id(ctx))
+        if symbol is None:
+            symbol = Symbol(
+                name=ctx.Identifier().getText(),
+                category=SymbolCategory.CONSTANT,
+                type=declared_type if declared_type is not None else value_type,
+                initialized=True,
+            )
+            self._declare(symbol, ctx)
+        elif symbol.type is None:
+            symbol.type = value_type
         return None
 
     def visitAssignment(self, ctx: CompiscriptParser.AssignmentContext):
         expressions = ctx.expression()
-        if ctx.Identifier() is not None:
+        if len(expressions) == 1:
             name = ctx.Identifier().getText()
             value_type = self.visit(expressions[0])
             symbol = self.symbol_table.resolve(name)
@@ -263,20 +273,23 @@ class SemanticAnalyzer(CompiscriptVisitor):
                 return None
             self._check_assignment_target(symbol, value_type, token, expressions[0].start)
             return None
-        # expression '.' Identifier '=' expression: la validacion del miembro de
-        # clase queda para la seccion 3.5, aqui solo se propagan los sub-errores.
-        self.visit(expressions[0])
-        self.visit(expressions[1])
+        base_type = self.visit(expressions[0])
+        value_type = self.visit(expressions[1])
+        member = self._resolve_member(base_type, ctx.Identifier())
+        if member is not None:
+            self._check_assignment_target(
+                member, value_type, ctx.Identifier().getSymbol(), expressions[1].start
+            )
         return None
 
     def visitAssignExpr(self, ctx: CompiscriptParser.AssignExprContext):
         value_type = self.visit(ctx.assignmentExpr())
         lhs_type = self.visit(ctx.lhs)
-        symbol = self._resolve_simple_identifier(ctx.lhs)
+        symbol = getattr(ctx.lhs, "resolved_symbol", None) or self._resolve_simple_identifier(ctx.lhs)
         if symbol is not None:
             token = ctx.lhs.start
             self._check_assignment_target(symbol, value_type, token, ctx.assignmentExpr().start)
-        elif lhs_type is not None and value_type is not None and not is_assignable(lhs_type, value_type):
+        elif lhs_type is not None and value_type is not None and not self._is_assignable(lhs_type, value_type):
             token = ctx.assignmentExpr().start
             self.errors.report(
                 token.line,
@@ -287,8 +300,15 @@ class SemanticAnalyzer(CompiscriptVisitor):
         return lhs_type
 
     def visitPropertyAssignExpr(self, ctx: CompiscriptParser.PropertyAssignExprContext):
-        self.visit(ctx.lhs)
-        return self.visit(ctx.assignmentExpr())
+        base_type = self.visit(ctx.lhs)
+        value_type = self.visit(ctx.assignmentExpr())
+        member = self._resolve_member(base_type, ctx.Identifier())
+        if member is not None:
+            self._check_assignment_target(
+                member, value_type, ctx.Identifier().getSymbol(), ctx.assignmentExpr().start
+            )
+            return member.type
+        return None
 
     def _check_assignment_target(self, symbol: Symbol, value_type: Optional[Type], name_token, value_token) -> None:
         if symbol.category is SymbolCategory.CONSTANT:
@@ -299,7 +319,7 @@ class SemanticAnalyzer(CompiscriptVisitor):
                 "asignacion-a-constante",
             )
             return
-        if symbol.type is not None and value_type is not None and not is_assignable(symbol.type, value_type):
+        if symbol.type is not None and value_type is not None and not self._is_assignable(symbol.type, value_type):
             self.errors.report(
                 value_token.line,
                 value_token.column,
@@ -323,18 +343,23 @@ class SemanticAnalyzer(CompiscriptVisitor):
         param_types = [self._optional_type(param_ctx) for param_ctx in param_ctxs]
         return_type = self._optional_type(ctx)
 
-        function_symbol = Symbol(
-            name=ctx.Identifier().getText(),
-            category=SymbolCategory.FUNCTION,
-            type=FunctionType(param_types, return_type),
-            initialized=True,
-            params=param_types,
-            return_type=return_type,
-        )
-        self._declare(function_symbol, ctx)
+        function_symbol = self._predeclared_class_members.get(id(ctx))
+        if function_symbol is None:
+            function_symbol = Symbol(
+                name=ctx.Identifier().getText(),
+                category=SymbolCategory.FUNCTION,
+                type=FunctionType(param_types, return_type),
+                initialized=True,
+                params=param_types,
+                return_type=return_type,
+            )
+            self._declare(function_symbol, ctx)
 
+        is_method = bool(self._class_stack) and self.symbol_table.current_scope.kind is ScopeKind.CLASS
         self.symbol_table.enter_scope(ScopeKind.FUNCTION)
         self._function_return_stack.append(return_type)
+        if is_method:
+            self._this_class_stack.append(self._class_stack[-1])
         for param_ctx, param_type in zip(param_ctxs, param_types):
             parameter_symbol = Symbol(
                 name=param_ctx.Identifier().getText(),
@@ -344,6 +369,8 @@ class SemanticAnalyzer(CompiscriptVisitor):
             )
             self._declare(parameter_symbol, param_ctx)
         self._visit_statements_detecting_dead_code(ctx.block().statement())
+        if is_method:
+            self._this_class_stack.pop()
         self._function_return_stack.pop()
         self.symbol_table.exit_scope()
 
@@ -389,11 +416,125 @@ class SemanticAnalyzer(CompiscriptVisitor):
         )
         self._declare(class_symbol, ctx)
 
+        if parent_class is not None:
+            parent_symbol = self.symbol_table.resolve_class(parent_class)
+            token = identifiers[1].getSymbol()
+            if parent_symbol is None:
+                self.errors.report(
+                    token.line,
+                    token.column,
+                    f"la clase base '{parent_class}' no esta declarada",
+                    "clase-base-no-declarada",
+                )
+            elif parent_symbol is class_symbol or self._inherits_from(parent_symbol, name):
+                self.errors.report(
+                    token.line,
+                    token.column,
+                    f"la herencia de la clase '{name}' forma un ciclo",
+                    "herencia-ciclica",
+                )
+
         class_symbol.class_scope = self.symbol_table.enter_scope(ScopeKind.CLASS)
+        self._class_stack.append(class_symbol)
+        for member in ctx.classMember():
+            self._predeclare_class_member(member)
         for member in ctx.classMember():
             self.visit(member)
+        self._class_stack.pop()
         self.symbol_table.exit_scope()
         return None
+
+    def _predeclare_class_member(self, member_ctx) -> None:
+        declaration = member_ctx.getChild(0)
+        if isinstance(declaration, CompiscriptParser.FunctionDeclarationContext):
+            param_ctxs = declaration.parameters().parameter() if declaration.parameters() else []
+            param_types = [self._optional_type(param_ctx) for param_ctx in param_ctxs]
+            return_type = self._optional_type(declaration)
+            symbol = Symbol(
+                name=declaration.Identifier().getText(),
+                category=SymbolCategory.FUNCTION,
+                type=FunctionType(param_types, return_type),
+                initialized=True,
+                params=param_types,
+                return_type=return_type,
+            )
+        else:
+            declared_type = self._optional_type(declaration.typeAnnotation())
+            is_constant = isinstance(declaration, CompiscriptParser.ConstantDeclarationContext)
+            symbol = Symbol(
+                name=declaration.Identifier().getText(),
+                category=SymbolCategory.CONSTANT if is_constant else SymbolCategory.VARIABLE,
+                type=declared_type,
+                initialized=is_constant or declaration.initializer() is not None,
+            )
+        self._predeclared_class_members[id(declaration)] = symbol
+        self._declare(symbol, declaration)
+
+    def _inherits_from(self, class_symbol: Symbol, target_name: str) -> bool:
+        visited = set()
+        while class_symbol is not None and class_symbol.name not in visited:
+            if class_symbol.name == target_name:
+                return True
+            visited.add(class_symbol.name)
+            if class_symbol.parent_class is None:
+                return False
+            class_symbol = self.symbol_table.resolve_class(
+                class_symbol.parent_class, class_symbol.scope
+            )
+        return False
+
+    def visitThisExpr(self, ctx: CompiscriptParser.ThisExprContext):
+        if not self._this_class_stack:
+            token = ctx.start
+            self.errors.report(
+                token.line,
+                token.column,
+                "'this' solo es valido dentro de un metodo de clase",
+                "this-fuera-de-metodo",
+            )
+            return None
+        return self._this_class_stack[-1].type
+
+    def visitNewExpr(self, ctx: CompiscriptParser.NewExprContext):
+        name = ctx.Identifier().getText()
+        class_symbol = self.symbol_table.resolve_class(name)
+        argument_ctxs = ctx.arguments().expression() if ctx.arguments() is not None else []
+        argument_types = [self.visit(argument) for argument in argument_ctxs]
+        if class_symbol is None:
+            token = ctx.Identifier().getSymbol()
+            self.errors.report(
+                token.line,
+                token.column,
+                f"no se puede construir la clase no declarada '{name}'",
+                "new-clase-no-declarada",
+            )
+            return None
+
+        constructor = (
+            class_symbol.class_scope.resolve_local("constructor")
+            if class_symbol.class_scope is not None
+            else None
+        )
+        if constructor is None:
+            if argument_ctxs:
+                token = ctx.start
+                self.errors.report(
+                    token.line,
+                    token.column,
+                    f"la clase '{name}' no declara constructor y solo admite cero argumentos",
+                    "constructor-numero-argumentos-invalido",
+                )
+        elif not isinstance(constructor.type, FunctionType):
+            token = ctx.start
+            self.errors.report(
+                token.line,
+                token.column,
+                f"el miembro 'constructor' de '{name}' no es una funcion",
+                "constructor-no-funcion",
+            )
+        else:
+            self._check_call_arguments(constructor.type, argument_ctxs, argument_types, ctx)
+        return class_symbol.type
 
     def visitIdentifierExpr(self, ctx: CompiscriptParser.IdentifierExprContext):
         name = ctx.Identifier().getText()
@@ -449,7 +590,7 @@ class SemanticAnalyzer(CompiscriptVisitor):
         for i in range(1, len(operands)):
             current_type = self.visit(operands[i])
             operator = ctx.getChild(2 * i - 1).getText()
-            if previous_type is not None and current_type is not None and not comparable_for_equality(
+            if previous_type is not None and current_type is not None and not self._comparable_for_equality(
                 previous_type, current_type
             ):
                 token = operands[i].start
@@ -550,8 +691,15 @@ class SemanticAnalyzer(CompiscriptVisitor):
 
     def visitLeftHandSide(self, ctx: CompiscriptParser.LeftHandSideContext):
         current_type = self.visit(ctx.primaryAtom())
+        resolved_symbol = None
         for suffix in ctx.suffixOp():
-            current_type = self._apply_suffix(current_type, suffix)
+            if isinstance(suffix, CompiscriptParser.PropertyAccessExprContext):
+                resolved_symbol = self._resolve_member(current_type, suffix.Identifier())
+                current_type = resolved_symbol.type if resolved_symbol is not None else None
+            else:
+                current_type = self._apply_suffix(current_type, suffix)
+                resolved_symbol = None
+        ctx.resolved_symbol = resolved_symbol
         return current_type
 
     def _apply_suffix(self, base_type: Optional[Type], suffix_ctx):
@@ -595,9 +743,39 @@ class SemanticAnalyzer(CompiscriptVisitor):
                 return None
             self._check_call_arguments(base_type, argument_ctxs, argument_types, suffix_ctx)
             return base_type.return_type
-        # PropertyAccessExpr: la resolucion de miembros de clase (incluida herencia)
-        # es responsabilidad de la seccion 3.5, todavia no implementada.
         return None
+
+    def _resolve_member(self, base_type: Optional[Type], identifier) -> Optional[Symbol]:
+        if base_type is None:
+            return None
+        token = identifier.getSymbol()
+        member_name = identifier.getText()
+        if not isinstance(base_type, ClassType):
+            self.errors.report(
+                token.line,
+                token.column,
+                f"no se puede acceder al miembro '{member_name}' sobre un valor de tipo '{base_type.name}'",
+                "acceso-miembro-sobre-no-objeto",
+            )
+            return None
+        class_symbol = self.symbol_table.resolve_class(base_type.class_name)
+        if class_symbol is None:
+            self.errors.report(
+                token.line,
+                token.column,
+                f"el tipo de clase '{base_type.class_name}' no esta declarado",
+                "tipo-clase-no-declarada",
+            )
+            return None
+        member = self.symbol_table.resolve_member(base_type.class_name, member_name)
+        if member is None:
+            self.errors.report(
+                token.line,
+                token.column,
+                f"la clase '{base_type.class_name}' no tiene un miembro llamado '{member_name}'",
+                "miembro-no-existente",
+            )
+        return member
 
     def _check_call_arguments(self, function_type: FunctionType, argument_ctxs, argument_types, ctx) -> None:
         expected_types = function_type.params
@@ -611,7 +789,7 @@ class SemanticAnalyzer(CompiscriptVisitor):
             )
             return
         for argument_ctx, argument_type, expected_type in zip(argument_ctxs, argument_types, expected_types):
-            if expected_type is not None and argument_type is not None and not is_assignable(
+            if expected_type is not None and argument_type is not None and not self._is_assignable(
                 expected_type, argument_type
             ):
                 token = argument_ctx.start
@@ -622,6 +800,21 @@ class SemanticAnalyzer(CompiscriptVisitor):
                     f"de tipo '{expected_type.name}'",
                     "llamada-tipo-argumento-invalido",
                 )
+
+    def _is_assignable(self, target: Optional[Type], value: Optional[Type]) -> bool:
+        if is_assignable(target, value):
+            return True
+        if isinstance(target, ClassType) and isinstance(value, ClassType):
+            value_class = self.symbol_table.resolve_class(value.class_name)
+            return value_class is not None and self._inherits_from(value_class, target.class_name)
+        return False
+
+    def _comparable_for_equality(self, left: Optional[Type], right: Optional[Type]) -> bool:
+        return (
+            comparable_for_equality(left, right)
+            or self._is_assignable(left, right)
+            or self._is_assignable(right, left)
+        )
 
     def _expect_boolean(self, type_: Optional[Type], token, context_label: str) -> None:
         if type_ is not None and not is_boolean(type_):

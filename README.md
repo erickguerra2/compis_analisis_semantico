@@ -1,3 +1,9 @@
+# Documentación del proyecto
+
+- [Arquitectura](docs/ARCHITECTURE.md)
+- [Instalación, pruebas y ejecución del IDE](docs/GETTING_STARTED.md)
+- [Decisiones de diseño](docs/DESIGN_DECISIONS.md)
+- [Convención de ramas y contribuciones](docs/CONTRIBUTING.md)
 
 # 🧪 Compiscript
 
