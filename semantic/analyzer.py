@@ -526,12 +526,48 @@ class SemanticAnalyzer(CompiscriptVisitor):
                 return ArrayType(base_type.base, base_type.dimensions - 1)
             return base_type.base
         if isinstance(suffix_ctx, CompiscriptParser.CallExprContext):
-            if suffix_ctx.arguments() is not None:
-                self.visit(suffix_ctx.arguments())
-            return None
+            argument_ctxs = suffix_ctx.arguments().expression() if suffix_ctx.arguments() is not None else []
+            argument_types = [self.visit(argument_ctx) for argument_ctx in argument_ctxs]
+            if base_type is None:
+                return None
+            if not isinstance(base_type, FunctionType):
+                token = suffix_ctx.start
+                self.errors.report(
+                    token.line,
+                    token.column,
+                    f"no se puede invocar un valor de tipo '{base_type.name}'",
+                    "llamada-sobre-no-funcion",
+                )
+                return None
+            self._check_call_arguments(base_type, argument_ctxs, argument_types, suffix_ctx)
+            return base_type.return_type
         # PropertyAccessExpr: la resolucion de miembros de clase (incluida herencia)
         # es responsabilidad de la seccion 3.5, todavia no implementada.
         return None
+
+    def _check_call_arguments(self, function_type: FunctionType, argument_ctxs, argument_types, ctx) -> None:
+        expected_types = function_type.params
+        if len(argument_types) != len(expected_types):
+            token = ctx.start
+            self.errors.report(
+                token.line,
+                token.column,
+                f"se esperaban {len(expected_types)} argumento(s) y se recibieron {len(argument_types)}",
+                "llamada-numero-argumentos-invalido",
+            )
+            return
+        for argument_ctx, argument_type, expected_type in zip(argument_ctxs, argument_types, expected_types):
+            if expected_type is not None and argument_type is not None and not is_assignable(
+                expected_type, argument_type
+            ):
+                token = argument_ctx.start
+                self.errors.report(
+                    token.line,
+                    token.column,
+                    f"el argumento de tipo '{argument_type.name}' no es compatible con el parametro "
+                    f"de tipo '{expected_type.name}'",
+                    "llamada-tipo-argumento-invalido",
+                )
 
     def _expect_boolean(self, type_: Optional[Type], token, context_label: str) -> None:
         if type_ is not None and not is_boolean(type_):
