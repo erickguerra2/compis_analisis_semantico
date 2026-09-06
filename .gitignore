@@ -1,2 +1,7 @@
 configs
 program/__pycache__
+program/generated/*
+!program/generated/__init__.py
+__pycache__
+.pytest_cache
+*.pyc

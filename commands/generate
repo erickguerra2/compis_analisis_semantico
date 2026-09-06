@@ -1,0 +1,10 @@
+#!/bin/bash
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+JAR="$SCRIPT_DIR/../antlr-4.13.1-complete.jar"
+if [ -f /usr/local/lib/antlr-4.13.1-complete.jar ]; then
+  JAR=/usr/local/lib/antlr-4.13.1-complete.jar
+fi
+
+cd "$SCRIPT_DIR/../program"
+java -jar "$JAR" -Dlanguage=Python3 -visitor -o generated Compiscript.g4
