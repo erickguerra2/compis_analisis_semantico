@@ -1,0 +1,5 @@
+# Los scripts de shell deben mantener saltos de linea LF sin importar
+# el core.autocrlf de cada integrante en Windows: con CRLF fallan al
+# correr dentro de contenedores Linux (ej. "$'\r': command not found").
+commands/* text eol=lf
+*.sh text eol=lf
