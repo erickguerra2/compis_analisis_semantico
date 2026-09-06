@@ -138,3 +138,65 @@ def test_switch_case_with_compatible_type_is_valid():
     analyzer = _analyze(source)
 
     assert not analyzer.errors.has_errors()
+
+
+def test_break_inside_switch_case_is_valid():
+    source = """
+    let x: integer = 1;
+    switch (x) {
+        case 1:
+            print(1);
+            break;
+        default:
+            print(0);
+    }
+    """
+
+    analyzer = _analyze(source)
+
+    assert not analyzer.errors.has_errors()
+
+
+def test_switch_allows_fallthrough_between_cases_without_break():
+    source = """
+    let x: integer = 1;
+    switch (x) {
+        case 1:
+            print(1);
+        case 2:
+            print(2);
+    }
+    """
+
+    analyzer = _analyze(source)
+
+    assert not analyzer.errors.has_errors()
+
+
+def test_code_after_break_inside_switch_case_is_dead_code():
+    source = """
+    let x: integer = 1;
+    switch (x) {
+        case 1:
+            break;
+            print(1);
+    }
+    """
+
+    analyzer = _analyze(source)
+
+    assert "codigo-muerto" in _rules(analyzer)
+
+
+def test_continue_inside_switch_without_loop_is_still_reported():
+    source = """
+    let x: integer = 1;
+    switch (x) {
+        case 1:
+            continue;
+    }
+    """
+
+    analyzer = _analyze(source)
+
+    assert "continue-fuera-de-bucle" in _rules(analyzer)

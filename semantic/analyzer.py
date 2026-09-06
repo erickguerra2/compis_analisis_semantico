@@ -34,6 +34,7 @@ class SemanticAnalyzer(CompiscriptVisitor):
         self.symbol_table = SymbolTable()
         self.errors = ErrorReporter()
         self._loop_depth = 0
+        self._switch_depth = 0
         self._function_return_stack: List[Optional[Type]] = []
 
     def visitProgram(self, ctx: CompiscriptParser.ProgramContext):
@@ -141,10 +142,13 @@ class SemanticAnalyzer(CompiscriptVisitor):
         return None
 
     def visitBreakStatement(self, ctx: CompiscriptParser.BreakStatementContext):
-        if self._loop_depth == 0:
+        if self._loop_depth == 0 and self._switch_depth == 0:
             token = ctx.start
             self.errors.report(
-                token.line, token.column, "'break' solo es valido dentro de un bucle", "break-fuera-de-bucle"
+                token.line,
+                token.column,
+                "'break' solo es valido dentro de un bucle o un 'switch'",
+                "break-fuera-de-bucle",
             )
         return None
 
@@ -178,6 +182,7 @@ class SemanticAnalyzer(CompiscriptVisitor):
 
     def visitSwitchStatement(self, ctx: CompiscriptParser.SwitchStatementContext):
         subject_type = self.visit(ctx.expression())
+        self._switch_depth += 1
         for switch_case in ctx.switchCase():
             case_type = self.visit(switch_case.expression())
             if subject_type is not None and case_type is not None and not comparable_for_equality(
@@ -191,11 +196,12 @@ class SemanticAnalyzer(CompiscriptVisitor):
                     f"'{subject_type.name}'",
                     "switch-case-tipo-incompatible",
                 )
-            for statement in switch_case.statement():
-                self.visit(statement)
+            # Sin 'break' hay fallthrough al siguiente case (decision de equipo:
+            # break tambien es valido dentro de un switch, ademas de en bucles).
+            self._visit_statements_detecting_dead_code(switch_case.statement())
         if ctx.defaultCase() is not None:
-            for statement in ctx.defaultCase().statement():
-                self.visit(statement)
+            self._visit_statements_detecting_dead_code(ctx.defaultCase().statement())
+        self._switch_depth -= 1
         return None
 
     def visitVariableDeclaration(self, ctx: CompiscriptParser.VariableDeclarationContext):
