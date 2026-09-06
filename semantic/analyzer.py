@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import Optional
+from typing import List, Optional
 
 from generated.CompiscriptParser import CompiscriptParser
 from generated.CompiscriptVisitor import CompiscriptVisitor
@@ -15,6 +15,7 @@ from .types import (
     INTEGER,
     NULL,
     STRING,
+    VOID,
     ArrayType,
     FunctionType,
     IntegerType,
@@ -32,6 +33,8 @@ class SemanticAnalyzer(CompiscriptVisitor):
     def __init__(self):
         self.symbol_table = SymbolTable()
         self.errors = ErrorReporter()
+        self._loop_depth = 0
+        self._function_return_stack: List[Optional[Type]] = []
 
     def visitProgram(self, ctx: CompiscriptParser.ProgramContext):
         for statement in ctx.statement():
@@ -43,6 +46,134 @@ class SemanticAnalyzer(CompiscriptVisitor):
         for statement in ctx.statement():
             self.visit(statement)
         self.symbol_table.exit_scope()
+        return None
+
+    def visitIfStatement(self, ctx: CompiscriptParser.IfStatementContext):
+        condition_type = self.visit(ctx.expression())
+        self._expect_boolean(condition_type, ctx.expression().start, "'if'")
+        for block in ctx.block():
+            self.visit(block)
+        return None
+
+    def visitWhileStatement(self, ctx: CompiscriptParser.WhileStatementContext):
+        condition_type = self.visit(ctx.expression())
+        self._expect_boolean(condition_type, ctx.expression().start, "'while'")
+        self._loop_depth += 1
+        self.visit(ctx.block())
+        self._loop_depth -= 1
+        return None
+
+    def visitDoWhileStatement(self, ctx: CompiscriptParser.DoWhileStatementContext):
+        self._loop_depth += 1
+        self.visit(ctx.block())
+        self._loop_depth -= 1
+        condition_type = self.visit(ctx.expression())
+        self._expect_boolean(condition_type, ctx.expression().start, "'do-while'")
+        return None
+
+    def visitForStatement(self, ctx: CompiscriptParser.ForStatementContext):
+        # El encabezado del for no crea su propio ambito: la variable declarada
+        # ahi queda en el ambito contenedor (decision pendiente de ratificar por
+        # el equipo, ver plan_tareas_analisis_semantico.md).
+        if ctx.variableDeclaration() is not None:
+            self.visit(ctx.variableDeclaration())
+        elif ctx.assignment() is not None:
+            self.visit(ctx.assignment())
+
+        middle_semicolon_index = next(
+            index for index in range(3, ctx.getChildCount()) if ctx.getChild(index).getText() == ";"
+        )
+        condition_ctx = ctx.getChild(3) if middle_semicolon_index != 3 else None
+        increment_index = middle_semicolon_index + 1
+        increment_ctx = ctx.getChild(increment_index) if ctx.getChild(increment_index).getText() != ")" else None
+
+        if condition_ctx is not None:
+            condition_type = self.visit(condition_ctx)
+            self._expect_boolean(condition_type, condition_ctx.start, "'for'")
+        if increment_ctx is not None:
+            self.visit(increment_ctx)
+
+        self._loop_depth += 1
+        for statement in ctx.block().statement():
+            self.visit(statement)
+        self._loop_depth -= 1
+        return None
+
+    def visitForeachStatement(self, ctx: CompiscriptParser.ForeachStatementContext):
+        iterable_type = self.visit(ctx.expression())
+        element_type = iterable_type.base if isinstance(iterable_type, ArrayType) else None
+
+        self.symbol_table.enter_scope(ScopeKind.BLOCK)
+        loop_symbol = Symbol(
+            name=ctx.Identifier().getText(),
+            category=SymbolCategory.VARIABLE,
+            type=element_type,
+            initialized=True,
+        )
+        self._declare(loop_symbol, ctx)
+        self._loop_depth += 1
+        for statement in ctx.block().statement():
+            self.visit(statement)
+        self._loop_depth -= 1
+        self.symbol_table.exit_scope()
+        return None
+
+    def visitBreakStatement(self, ctx: CompiscriptParser.BreakStatementContext):
+        if self._loop_depth == 0:
+            token = ctx.start
+            self.errors.report(
+                token.line, token.column, "'break' solo es valido dentro de un bucle", "break-fuera-de-bucle"
+            )
+        return None
+
+    def visitContinueStatement(self, ctx: CompiscriptParser.ContinueStatementContext):
+        if self._loop_depth == 0:
+            token = ctx.start
+            self.errors.report(
+                token.line, token.column, "'continue' solo es valido dentro de un bucle", "continue-fuera-de-bucle"
+            )
+        return None
+
+    def visitReturnStatement(self, ctx: CompiscriptParser.ReturnStatementContext):
+        value_type = self.visit(ctx.expression()) if ctx.expression() is not None else VOID
+        if not self._function_return_stack:
+            token = ctx.start
+            self.errors.report(
+                token.line, token.column, "'return' solo es valido dentro de una funcion", "return-fuera-de-funcion"
+            )
+            return None
+        expected_type = self._function_return_stack[-1]
+        if expected_type is not None and value_type is not None and not is_assignable(expected_type, value_type):
+            token = ctx.start
+            self.errors.report(
+                token.line,
+                token.column,
+                f"el tipo de retorno '{value_type.name}' no coincide con el tipo declarado "
+                f"'{expected_type.name}'",
+                "return-tipo-incompatible",
+            )
+        return None
+
+    def visitSwitchStatement(self, ctx: CompiscriptParser.SwitchStatementContext):
+        subject_type = self.visit(ctx.expression())
+        for switch_case in ctx.switchCase():
+            case_type = self.visit(switch_case.expression())
+            if subject_type is not None and case_type is not None and not comparable_for_equality(
+                subject_type, case_type
+            ):
+                token = switch_case.expression().start
+                self.errors.report(
+                    token.line,
+                    token.column,
+                    f"el tipo del case '{case_type.name}' no es comparable con el tipo del switch "
+                    f"'{subject_type.name}'",
+                    "switch-case-tipo-incompatible",
+                )
+            for statement in switch_case.statement():
+                self.visit(statement)
+        if ctx.defaultCase() is not None:
+            for statement in ctx.defaultCase().statement():
+                self.visit(statement)
         return None
 
     def visitVariableDeclaration(self, ctx: CompiscriptParser.VariableDeclarationContext):
@@ -175,6 +306,7 @@ class SemanticAnalyzer(CompiscriptVisitor):
         self._declare(function_symbol, ctx)
 
         self.symbol_table.enter_scope(ScopeKind.FUNCTION)
+        self._function_return_stack.append(return_type)
         for param_ctx, param_type in zip(param_ctxs, param_types):
             parameter_symbol = Symbol(
                 name=param_ctx.Identifier().getText(),
@@ -185,6 +317,7 @@ class SemanticAnalyzer(CompiscriptVisitor):
             self._declare(parameter_symbol, param_ctx)
         for statement in ctx.block().statement():
             self.visit(statement)
+        self._function_return_stack.pop()
         self.symbol_table.exit_scope()
         return None
 
