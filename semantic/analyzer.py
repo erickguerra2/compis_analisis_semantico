@@ -319,7 +319,34 @@ class SemanticAnalyzer(CompiscriptVisitor):
             self.visit(statement)
         self._function_return_stack.pop()
         self.symbol_table.exit_scope()
+
+        if return_type is not None and not self._block_always_returns(ctx.block()):
+            token = ctx.block().start
+            self.errors.report(
+                token.line,
+                token.column,
+                f"la funcion '{function_symbol.name}' declara tipo de retorno '{return_type.name}' "
+                f"pero no garantiza un 'return' en todos los caminos",
+                "return-faltante-en-algun-camino",
+            )
         return None
+
+    def _block_always_returns(self, block_ctx: CompiscriptParser.BlockContext) -> bool:
+        return any(self._statement_always_returns(statement) for statement in block_ctx.statement())
+
+    def _statement_always_returns(self, ctx: CompiscriptParser.StatementContext) -> bool:
+        if ctx.returnStatement() is not None:
+            return True
+        if ctx.ifStatement() is not None:
+            blocks = ctx.ifStatement().block()
+            if len(blocks) < 2:
+                return False
+            return all(self._block_always_returns(block) for block in blocks)
+        if ctx.doWhileStatement() is not None:
+            return self._block_always_returns(ctx.doWhileStatement().block())
+        if ctx.block() is not None:
+            return self._block_always_returns(ctx.block())
+        return False
 
     def visitClassDeclaration(self, ctx: CompiscriptParser.ClassDeclarationContext):
         identifiers = ctx.Identifier()
