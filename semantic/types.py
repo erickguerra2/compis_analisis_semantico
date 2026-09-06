@@ -99,3 +99,27 @@ _BASE_TYPES = {
 
 def resolve_base_type(name: str) -> Type:
     return _BASE_TYPES.get(name, ClassType(name))
+
+
+def is_numeric(candidate) -> bool:
+    return isinstance(candidate, (IntegerType, FloatType))
+
+
+def is_boolean(candidate) -> bool:
+    return isinstance(candidate, BooleanType)
+
+
+def numeric_result(left: Type, right: Type) -> Type:
+    return FLOAT if isinstance(left, FloatType) or isinstance(right, FloatType) else INTEGER
+
+
+def comparable_for_equality(left, right) -> bool:
+    if left is None or right is None:
+        return True
+    if left == right:
+        return True
+    if is_numeric(left) and is_numeric(right):
+        return True
+    if isinstance(left, NullType) or isinstance(right, NullType):
+        return True
+    return False
