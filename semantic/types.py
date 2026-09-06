@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 
 class Type:
@@ -121,5 +121,20 @@ def comparable_for_equality(left, right) -> bool:
     if is_numeric(left) and is_numeric(right):
         return True
     if isinstance(left, NullType) or isinstance(right, NullType):
+        return True
+    return False
+
+
+def is_assignable(target: Optional[Type], value: Optional[Type]) -> bool:
+    """Determina si un valor de tipo `value` puede asignarse a algo de tipo `target`."""
+    if target is None or value is None:
+        return True
+    if target == value:
+        return True
+    if isinstance(target, FloatType) and isinstance(value, IntegerType):
+        return True
+    if isinstance(target, (ClassType, ArrayType)) and isinstance(value, NullType):
+        return True
+    if isinstance(target, ArrayType) and isinstance(value, ArrayType) and isinstance(value.base, NullType):
         return True
     return False

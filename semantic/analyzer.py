@@ -20,6 +20,7 @@ from .types import (
     IntegerType,
     Type,
     comparable_for_equality,
+    is_assignable,
     is_boolean,
     is_numeric,
     numeric_result,
@@ -45,26 +46,117 @@ class SemanticAnalyzer(CompiscriptVisitor):
         return None
 
     def visitVariableDeclaration(self, ctx: CompiscriptParser.VariableDeclarationContext):
+        declared_type = self._optional_type(ctx.typeAnnotation())
         symbol = Symbol(
             name=ctx.Identifier().getText(),
             category=SymbolCategory.VARIABLE,
-            type=self._optional_type(ctx.typeAnnotation()),
+            type=declared_type,
             initialized=ctx.initializer() is not None,
         )
         self._declare(symbol, ctx)
         if ctx.initializer() is not None:
-            self.visit(ctx.initializer())
+            value_type = self.visit(ctx.initializer())
+            if declared_type is None:
+                symbol.type = value_type
+            elif value_type is not None and not is_assignable(declared_type, value_type):
+                token = ctx.initializer().expression().start
+                self.errors.report(
+                    token.line,
+                    token.column,
+                    f"no se puede asignar un valor de tipo '{value_type.name}' a la variable "
+                    f"'{symbol.name}' de tipo '{declared_type.name}'",
+                    "asignacion-tipo-incompatible",
+                )
         return None
 
     def visitConstantDeclaration(self, ctx: CompiscriptParser.ConstantDeclarationContext):
+        declared_type = self._optional_type(ctx.typeAnnotation())
+        value_type = self.visit(ctx.expression())
+        if declared_type is not None and value_type is not None and not is_assignable(declared_type, value_type):
+            token = ctx.expression().start
+            self.errors.report(
+                token.line,
+                token.column,
+                f"no se puede inicializar la constante '{ctx.Identifier().getText()}' de tipo "
+                f"'{declared_type.name}' con un valor de tipo '{value_type.name}'",
+                "asignacion-tipo-incompatible",
+            )
         symbol = Symbol(
             name=ctx.Identifier().getText(),
             category=SymbolCategory.CONSTANT,
-            type=self._optional_type(ctx.typeAnnotation()),
+            type=declared_type if declared_type is not None else value_type,
             initialized=True,
         )
         self._declare(symbol, ctx)
-        self.visit(ctx.expression())
+        return None
+
+    def visitAssignment(self, ctx: CompiscriptParser.AssignmentContext):
+        expressions = ctx.expression()
+        if ctx.Identifier() is not None:
+            name = ctx.Identifier().getText()
+            value_type = self.visit(expressions[0])
+            symbol = self.symbol_table.resolve(name)
+            token = ctx.Identifier().getSymbol()
+            if symbol is None:
+                self.errors.report(
+                    token.line, token.column, f"variable '{name}' no declarada", "uso-variable-no-declarada"
+                )
+                return None
+            self._check_assignment_target(symbol, value_type, token, expressions[0].start)
+            return None
+        # expression '.' Identifier '=' expression: la validacion del miembro de
+        # clase queda para la seccion 3.5, aqui solo se propagan los sub-errores.
+        self.visit(expressions[0])
+        self.visit(expressions[1])
+        return None
+
+    def visitAssignExpr(self, ctx: CompiscriptParser.AssignExprContext):
+        value_type = self.visit(ctx.assignmentExpr())
+        lhs_type = self.visit(ctx.lhs)
+        symbol = self._resolve_simple_identifier(ctx.lhs)
+        if symbol is not None:
+            token = ctx.lhs.start
+            self._check_assignment_target(symbol, value_type, token, ctx.assignmentExpr().start)
+        elif lhs_type is not None and value_type is not None and not is_assignable(lhs_type, value_type):
+            token = ctx.assignmentExpr().start
+            self.errors.report(
+                token.line,
+                token.column,
+                f"no se puede asignar un valor de tipo '{value_type.name}' a un valor de tipo '{lhs_type.name}'",
+                "asignacion-tipo-incompatible",
+            )
+        return lhs_type
+
+    def visitPropertyAssignExpr(self, ctx: CompiscriptParser.PropertyAssignExprContext):
+        self.visit(ctx.lhs)
+        return self.visit(ctx.assignmentExpr())
+
+    def _check_assignment_target(self, symbol: Symbol, value_type: Optional[Type], name_token, value_token) -> None:
+        if symbol.category is SymbolCategory.CONSTANT:
+            self.errors.report(
+                name_token.line,
+                name_token.column,
+                f"no se puede reasignar la constante '{symbol.name}'",
+                "asignacion-a-constante",
+            )
+            return
+        if symbol.type is not None and value_type is not None and not is_assignable(symbol.type, value_type):
+            self.errors.report(
+                value_token.line,
+                value_token.column,
+                f"no se puede asignar un valor de tipo '{value_type.name}' a '{symbol.name}' "
+                f"de tipo '{symbol.type.name}'",
+                "asignacion-tipo-incompatible",
+            )
+            return
+        symbol.initialized = True
+
+    def _resolve_simple_identifier(self, left_hand_side_ctx) -> Optional[Symbol]:
+        if left_hand_side_ctx.suffixOp():
+            return None
+        atom = left_hand_side_ctx.primaryAtom()
+        if isinstance(atom, CompiscriptParser.IdentifierExprContext):
+            return self.symbol_table.resolve(atom.Identifier().getText())
         return None
 
     def visitFunctionDeclaration(self, ctx: CompiscriptParser.FunctionDeclarationContext):
