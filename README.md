@@ -1,3 +1,13 @@
+## 🎥 Video de la presentación
+
+<p align="center">
+  <a href="https://youtu.be/GAzgpWwuxtM">
+    <img src="https://img.youtube.com/vi/GAzgpWwuxtM/maxresdefault.jpg" alt="Video de la presentación" width="700">
+  </a>
+</p>
+
+---
+
 # Documentación del proyecto
 
 - [Arquitectura](docs/ARCHITECTURE.md)
