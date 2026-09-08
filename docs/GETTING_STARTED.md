@@ -53,6 +53,11 @@ Abre `http://127.0.0.1:5000`. El botón **Compilar** y `Ctrl+Enter` ejecutan lex
 análisis semántico. CodeMirror se carga desde cdnjs; sin Internet el campo sigue siendo un
 `textarea`, pero no tendrá resaltado ni las mejoras del editor.
 
+La pestaña **Pruebas** corre en vivo, dentro del propio IDE, la batería de casos definida en
+`ide/demo_cases.py` y muestra cuáles pasan o fallan, con un botón **Cargar** para reproducir
+cualquier caso al instante. Esa misma lista de casos se valida automáticamente vía
+`tests/test_demo_suite.py`.
+
 También se puede probar el endpoint directamente:
 
 ```bash

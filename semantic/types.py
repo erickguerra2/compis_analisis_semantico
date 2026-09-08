@@ -79,7 +79,8 @@ class FunctionType(Type):
     @property
     def name(self) -> str:
         params = ", ".join(param.name for param in self.params)
-        return f"({params}) -> {self.return_type.name}"
+        return_name = self.return_type.name if self.return_type is not None else "void"
+        return f"({params}) -> {return_name}"
 
 
 INTEGER = IntegerType()

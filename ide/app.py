@@ -18,6 +18,8 @@ from generated.CompiscriptLexer import CompiscriptLexer
 from generated.CompiscriptParser import CompiscriptParser
 from semantic.analyzer import SemanticAnalyzer
 
+from ide.demo_cases import DemoCase, DEMO_CASES
+
 
 class CollectingErrorListener(ErrorListener):
     def __init__(self, category: str):
@@ -104,6 +106,38 @@ def compile_source(source: str):
     }
 
 
+def _demo_case_passed(case: DemoCase, result: dict) -> bool:
+    if case.expect_success:
+        return result["success"] is True
+    if result["success"]:
+        return False
+    if case.expect_rule is None:
+        return True
+    return any(error["rule"] == case.expect_rule for error in result["errors"])
+
+
+def run_demo_suite() -> list[dict]:
+    """Compile every case from ide.demo_cases and compare it against what it
+    should do, so the IDE can show a live pass/fail run."""
+    results = []
+    for case in DEMO_CASES:
+        result = compile_source(case.source)
+        results.append(
+            {
+                "id": case.id,
+                "group": case.group,
+                "title": case.title,
+                "source": case.source,
+                "expectSuccess": case.expect_success,
+                "expectRule": case.expect_rule,
+                "success": result["success"],
+                "errors": result["errors"],
+                "passed": _demo_case_passed(case, result),
+            }
+        )
+    return results
+
+
 def create_app():
     app = Flask(__name__)
 
@@ -117,6 +151,10 @@ def create_app():
         if not isinstance(payload, dict) or not isinstance(payload.get("source"), str):
             return jsonify({"error": "El cuerpo debe ser JSON con un campo 'source' de tipo string."}), 400
         return jsonify(compile_source(payload["source"]))
+
+    @app.get("/demo-tests")
+    def demo_tests_endpoint():
+        return jsonify(run_demo_suite())
 
     return app
 
