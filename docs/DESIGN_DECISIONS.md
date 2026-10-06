@@ -41,3 +41,13 @@ se conserva por compatibilidad con la implementación actual y debe ratificarse 
   tipo y la promoción `integer -> float`.
 - `try/catch` todavía no declara ni asigna un tipo a la variable de `catch`; el equipo debe elegir
   si será `string`, un tipo de error o un tipo dinámico.
+# Decisiones de generación TAC
+
+- El TAC usa objetos `Quad` y operandos tipados; `Emitter.lines()` es la
+  representación canónica que consumen las pruebas y las siguientes fases.
+- Los temporales se reciclan con un pool de menor identificador libre y se
+  reinician por unidad de código. Las etiquetas y literales string son globales.
+- El analizador conserva `Annotation(scope, type, symbol)` por identidad de nodo
+  para desacoplar la generación del recorrido mutable de la tabla de símbolos.
+- No se genera TAC cuando existe cualquier error previo. Las construcciones de
+  turnos posteriores fallan explícitamente con `NotImplementedError`.
