@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import List, Optional
 
 from generated.CompiscriptParser import CompiscriptParser
@@ -30,6 +31,13 @@ from .types import (
 )
 
 
+@dataclass(frozen=True)
+class Annotation:
+    scope: object
+    type: Optional[Type] = None
+    symbol: Optional[Symbol] = None
+
+
 class SemanticAnalyzer(CompiscriptVisitor):
     def __init__(self):
         self.symbol_table = SymbolTable()
@@ -40,6 +48,25 @@ class SemanticAnalyzer(CompiscriptVisitor):
         self._class_stack: List[Symbol] = []
         self._this_class_stack: List[Symbol] = []
         self._predeclared_class_members = {}
+        self.annotations: dict[int, Annotation] = {}
+
+    def visit(self, tree):
+        result = super().visit(tree)
+        if tree is not None and hasattr(tree, "getRuleIndex"):
+            previous = self.annotations.get(id(tree))
+            symbol = getattr(tree, "resolved_symbol", None)
+            self.annotations[id(tree)] = Annotation(
+                previous.scope if previous is not None else self.symbol_table.current_scope,
+                result if isinstance(result, Type) else (previous.type if previous is not None else None),
+                symbol if symbol is not None else (previous.symbol if previous is not None else None),
+            )
+        return result
+
+    def annotate(self, ctx, type_=None, symbol=None, scope=None) -> None:
+        self.annotations[id(ctx)] = Annotation(scope or self.symbol_table.current_scope, type_, symbol)
+
+    def annotation_of(self, ctx) -> Optional[Annotation]:
+        return self.annotations.get(id(ctx))
 
     def visitProgram(self, ctx: CompiscriptParser.ProgramContext):
         for statement in ctx.statement():
@@ -47,7 +74,8 @@ class SemanticAnalyzer(CompiscriptVisitor):
         return None
 
     def visitBlock(self, ctx: CompiscriptParser.BlockContext):
-        self.symbol_table.enter_scope(ScopeKind.BLOCK)
+        scope = self.symbol_table.enter_scope(ScopeKind.BLOCK)
+        self.annotate(ctx, scope=scope)
         self._visit_statements_detecting_dead_code(ctx.statement())
         self.symbol_table.exit_scope()
         return None
@@ -82,6 +110,10 @@ class SemanticAnalyzer(CompiscriptVisitor):
         self._expect_boolean(condition_type, ctx.expression().start, "'if'")
         for block in ctx.block():
             self.visit(block)
+        return None
+
+    def visitPrintStatement(self, ctx: CompiscriptParser.PrintStatementContext):
+        self.visit(ctx.expression())
         return None
 
     def visitWhileStatement(self, ctx: CompiscriptParser.WhileStatementContext):
@@ -123,6 +155,7 @@ class SemanticAnalyzer(CompiscriptVisitor):
             self.visit(increment_ctx)
 
         self._loop_depth += 1
+        self.annotate(ctx.block(), scope=self.symbol_table.current_scope)
         self._visit_statements_detecting_dead_code(ctx.block().statement())
         self._loop_depth -= 1
         return None
@@ -131,7 +164,8 @@ class SemanticAnalyzer(CompiscriptVisitor):
         iterable_type = self.visit(ctx.expression())
         element_type = iterable_type.base if isinstance(iterable_type, ArrayType) else None
 
-        self.symbol_table.enter_scope(ScopeKind.BLOCK)
+        scope = self.symbol_table.enter_scope(ScopeKind.BLOCK)
+        self.annotate(ctx.block(), scope=scope)
         loop_symbol = Symbol(
             name=ctx.Identifier().getText(),
             category=SymbolCategory.VARIABLE,
@@ -139,6 +173,7 @@ class SemanticAnalyzer(CompiscriptVisitor):
             initialized=True,
         )
         self._declare(loop_symbol, ctx)
+        self.annotate(ctx, element_type, loop_symbol, scope)
         self._loop_depth += 1
         self._visit_statements_detecting_dead_code(ctx.block().statement())
         self._loop_depth -= 1
@@ -232,6 +267,7 @@ class SemanticAnalyzer(CompiscriptVisitor):
                     f"'{symbol.name}' de tipo '{declared_type.name}'",
                     "asignacion-tipo-incompatible",
                 )
+        self.annotate(ctx, symbol.type, symbol)
         return None
 
     def visitConstantDeclaration(self, ctx: CompiscriptParser.ConstantDeclarationContext):
@@ -257,6 +293,7 @@ class SemanticAnalyzer(CompiscriptVisitor):
             self._declare(symbol, ctx)
         elif symbol.type is None:
             symbol.type = value_type
+        self.annotate(ctx, symbol.type, symbol)
         return None
 
     def visitAssignment(self, ctx: CompiscriptParser.AssignmentContext):
@@ -355,8 +392,11 @@ class SemanticAnalyzer(CompiscriptVisitor):
             )
             self._declare(function_symbol, ctx)
 
+        self.annotate(ctx, function_symbol.type, function_symbol)
+
         is_method = bool(self._class_stack) and self.symbol_table.current_scope.kind is ScopeKind.CLASS
-        self.symbol_table.enter_scope(ScopeKind.FUNCTION)
+        function_scope = self.symbol_table.enter_scope(ScopeKind.FUNCTION)
+        self.annotate(ctx.block(), scope=function_scope)
         self._function_return_stack.append(return_type)
         if is_method:
             self._this_class_stack.append(self._class_stack[-1])
@@ -368,6 +408,7 @@ class SemanticAnalyzer(CompiscriptVisitor):
                 initialized=True,
             )
             self._declare(parameter_symbol, param_ctx)
+            self.annotate(param_ctx, param_type, parameter_symbol)
         self._visit_statements_detecting_dead_code(ctx.block().statement())
         if is_method:
             self._this_class_stack.pop()
@@ -415,6 +456,7 @@ class SemanticAnalyzer(CompiscriptVisitor):
             parent_class=parent_class,
         )
         self._declare(class_symbol, ctx)
+        self.annotate(ctx, class_symbol.type, class_symbol)
 
         if parent_class is not None:
             parent_symbol = self.symbol_table.resolve_class(parent_class)
@@ -548,6 +590,8 @@ class SemanticAnalyzer(CompiscriptVisitor):
                 "uso-variable-no-declarada",
             )
             return None
+        ctx.resolved_symbol = symbol
+        self.annotate(ctx, symbol.type, symbol)
         return symbol.type
 
     def visitTernaryExpr(self, ctx: CompiscriptParser.TernaryExprContext):
@@ -617,7 +661,30 @@ class SemanticAnalyzer(CompiscriptVisitor):
         return BOOLEAN
 
     def visitAdditiveExpr(self, ctx: CompiscriptParser.AdditiveExprContext):
-        return self._check_left_associative_arithmetic(ctx, ctx.multiplicativeExpr())
+        operands = ctx.multiplicativeExpr()
+        result = self.visit(operands[0])
+        for i in range(1, len(operands)):
+            right = self.visit(operands[i])
+            operator = ctx.getChild(2 * i - 1).getText()
+            if operator == "+" and (result == STRING or right == STRING):
+                convertible = (STRING, INTEGER, BOOLEAN, NULL)
+                invalid = result if result not in convertible else right if right not in convertible else None
+                if invalid is not None:
+                    token = operands[i].start
+                    self.errors.report(
+                        token.line,
+                        token.column,
+                        f"no se puede convertir el tipo '{invalid.name}' a string para concatenarlo",
+                        "concatenacion-tipo-invalido",
+                    )
+                    result = None
+                else:
+                    result = STRING
+                continue
+            self._require_numeric_operand(result, operands[i - 1], operator)
+            self._require_numeric_operand(right, operands[i], operator)
+            result = numeric_result(result, right) if is_numeric(result) and is_numeric(right) else None
+        return result
 
     def visitMultiplicativeExpr(self, ctx: CompiscriptParser.MultiplicativeExprContext):
         return self._check_left_associative_arithmetic(ctx, ctx.unaryExpr())
@@ -700,6 +767,10 @@ class SemanticAnalyzer(CompiscriptVisitor):
                 current_type = self._apply_suffix(current_type, suffix)
                 resolved_symbol = None
         ctx.resolved_symbol = resolved_symbol
+        if resolved_symbol is None and not ctx.suffixOp():
+            atom = ctx.primaryAtom()
+            resolved_symbol = getattr(atom, "resolved_symbol", None)
+            ctx.resolved_symbol = resolved_symbol
         return current_type
 
     def _apply_suffix(self, base_type: Optional[Type], suffix_ctx):
