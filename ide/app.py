@@ -16,6 +16,7 @@ for import_path in (ROOT, PROGRAM):
 
 from generated.CompiscriptLexer import CompiscriptLexer
 from generated.CompiscriptParser import CompiscriptParser
+from codegen.generator import TacGenerator
 from semantic.analyzer import SemanticAnalyzer
 
 from ide.demo_cases import DemoCase, DEMO_CASES
@@ -83,6 +84,9 @@ def compile_source(source: str):
 
     errors = lexical_errors.errors + syntax_errors.errors
     symbols = []
+    tac = []
+    strings = {}
+    tac_error = None
     if not errors:
         analyzer = SemanticAnalyzer()
         analyzer.visit(tree)
@@ -97,11 +101,21 @@ def compile_source(source: str):
             for error in analyzer.errors.errors
         )
         symbols = _symbols_to_json(analyzer)
+        if not errors:
+            try:
+                emitter = TacGenerator(analyzer, tree).generate()
+                tac = emitter.lines()
+                strings = emitter.strings
+            except NotImplementedError as error:
+                tac_error = str(error)
 
     return {
         "success": not errors,
         "errors": errors,
         "symbols": symbols,
+        "tac": tac,
+        "strings": strings,
+        "tacError": tac_error,
         "tree": _tree_to_json(tree, parser),
     }
 

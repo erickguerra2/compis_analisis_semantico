@@ -50,3 +50,37 @@ def test_index_serves_the_ide():
 
     assert response.status_code == 200
     assert b"Compiscript IDE" in response.data
+    assert b'data-panel="tac"' in response.data
+
+
+def test_compile_endpoint_returns_tac_for_valid_program():
+    source = 'let i = 0; while (i < 2) { i = i + 1; } print("fin");'
+    payload = _client().post("/compile", json={"source": source}).get_json()
+
+    assert payload["success"] is True
+    assert payload["tacError"] is None
+    assert payload["strings"] == {".str0": "fin"}
+    assert payload["tac"] == [
+        "begin_func main", "i = 0", "L0:", "t0 = i < 2", "ifFalse t0 goto L1",
+        "t0 = i + 1", "i = t0", "goto L0", "L1:", "print .str0", "end_func main",
+    ]
+
+
+def test_compile_endpoint_returns_no_tac_when_there_are_errors():
+    semantic = _client().post("/compile", json={"source": "break;"}).get_json()
+    syntax = _client().post("/compile", json={"source": "let value = ;"}).get_json()
+
+    for payload in (semantic, syntax):
+        assert payload["success"] is False
+        assert payload["tac"] == []
+        assert payload["strings"] == {}
+
+
+def test_compile_endpoint_reports_constructions_without_tac_yet():
+    source = "function f(): integer { return 1; }"
+    payload = _client().post("/compile", json={"source": source}).get_json()
+
+    assert payload["success"] is True
+    assert payload["errors"] == []
+    assert payload["tac"] == []
+    assert payload["tacError"] == "construcción no soportada todavía"

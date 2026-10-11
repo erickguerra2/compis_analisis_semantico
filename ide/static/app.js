@@ -28,6 +28,7 @@ const compileButton = document.querySelector("#compile");
 const errorsPanel = document.querySelector("#errors");
 const symbolsPanel = document.querySelector("#symbols");
 const treePanel = document.querySelector("#tree");
+const tacPanel = document.querySelector("#tac");
 const demoPanel = document.querySelector("#demo");
 const errorCount = document.querySelector("#error-count");
 const demoCount = document.querySelector("#demo-count");
@@ -119,6 +120,27 @@ function renderDemoTests(tests) {
   }));
 }
 
+function renderTac(result) {
+  if (result.tacError) {
+    tacPanel.innerHTML = `<div class="empty"><strong>TAC no disponible</strong><p>${escapeHtml(result.tacError)}</p></div>`;
+    return;
+  }
+  if (!result.tac.length) {
+    tacPanel.innerHTML = '<div class="empty"><strong>Sin TAC</strong><p>Corrige los errores para generar el código intermedio.</p></div>';
+    return;
+  }
+  const strings = Object.entries(result.strings);
+  const data = strings.length
+    ? `<h3>Datos</h3><pre>${strings.map(([label, text]) => `${escapeHtml(label)}: ${escapeHtml(JSON.stringify(text))}`).join("\n")}</pre>`
+    : "";
+  const code = result.tac.map(line => {
+    const unit = /^(begin_func|end_func) /.test(line);
+    const label = /^L\d+:$/.test(line);
+    return `<span class="${unit ? "unit" : label ? "label" : "instruction"}">${escapeHtml(line)}</span>`;
+  }).join("\n");
+  tacPanel.innerHTML = `${data}<h3>Código</h3><pre>${code}</pre>`;
+}
+
 async function runDemoSuite() {
   demoPanel.innerHTML = '<div class="empty">Ejecutando pruebas…</div>';
   try {
@@ -144,7 +166,9 @@ async function compile() {
     renderErrors(result.errors);
     renderSymbols(result.symbols);
     renderTree(result.tree);
+    renderTac(result);
   } catch (error) {
+    renderTac({ tac: [], strings: {}, tacError: null });
     renderErrors([{ category: "servidor", rule: "error-interno", line: 0, column: 0, message: error.message }]);
   } finally {
     compileButton.disabled = false;

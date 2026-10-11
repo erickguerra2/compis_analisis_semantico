@@ -70,3 +70,8 @@ th { color: var(--muted); font-size: 10px; letter-spacing: .1em; text-transform:
   .editor-panel { border-right: 0; border-bottom: 1px solid var(--border); }
   aside { min-height: 420px; }
 }
+.tac h3 { margin: 0 0 8px; color: var(--muted); font-size: 12px; text-transform: uppercase; }
+.tac pre { margin: 0 0 16px; font: 13px/1.6 "Cascadia Code", monospace; }
+.tac .instruction { padding-left: 4ch; }
+.tac .label { padding-left: 2ch; color: var(--accent); }
+.tac .unit { color: var(--muted); }
