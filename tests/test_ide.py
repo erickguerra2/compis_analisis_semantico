@@ -77,10 +77,25 @@ def test_compile_endpoint_returns_no_tac_when_there_are_errors():
 
 
 def test_compile_endpoint_reports_constructions_without_tac_yet():
-    source = "function f(): integer { return 1; }"
+    source = "class C {}"
     payload = _client().post("/compile", json={"source": source}).get_json()
 
     assert payload["success"] is True
     assert payload["errors"] == []
     assert payload["tac"] == []
     assert payload["tacError"] == "construcción no soportada todavía"
+
+
+def test_compile_endpoint_exposes_memory_and_frames():
+    payload = _client().post("/compile", json={"source": "function f(p: integer): integer { let x = p + 1; return x; } print(f(2));"}).get_json()
+    assert payload["success"] and payload["tacError"] is None
+    symbols = {s["name"]: s for s in payload["symbols"]}
+    assert symbols["f"]["label"] == "f"
+    assert symbols["p"]["offset"] == 12
+    assert symbols["x"]["offset"] == 16
+    assert symbols["x"]["storage"] == "local"
+    assert symbols["x"]["size"] == 4
+    assert symbols["x"]["depth"] == 1
+    frames = {r["name"]: r for r in payload["activationRecords"]}
+    assert frames["f"]["size"] == 24
+    assert frames["f"]["temporaries"] == [{"name": "t0", "offset": 20}]

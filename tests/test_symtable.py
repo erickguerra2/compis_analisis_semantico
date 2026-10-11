@@ -97,3 +97,37 @@ def test_missing_inherited_member_returns_none():
     table.exit_scope()
 
     assert table.resolve_member("Dog", "missing") is None
+
+
+def test_memory_offsets_and_activation_records():
+    from helpers import compile_source
+    result = compile_source("let g = 1; { let h = true; } function f(p: integer) { let a = 1; { let b = 2; } { let c = 3; } print(a + p); function inner(q: integer) { print(a + q); } inner(2); }")
+    assert not result.errors
+    records = result.analyzer.activation_records
+    f = records["f"]
+    assert [(s.name, s.offset, s.storage, s.depth, s.size) for s in f.parameters + f.locals] == [("p", 12, "param", 1, 4), ("a", 16, "local", 1, 4), ("b", 20, "local", 1, 4), ("c", 24, "local", 1, 4)]
+    assert f.temp_offset(0) == 28
+    assert f.size == 32
+    assert (f.return_address_offset, f.control_link_offset, f.access_link_offset) == (0, 4, 8)
+    assert records["f.inner"].parameters[0].offset == 12
+    assert records["f.inner"].depth == 2
+    globals_ = [s for scope in result.analyzer.symbol_table.scopes for s in scope.symbols.values() if s.storage == "global"]
+    assert [(s.name, s.offset, s.depth) for s in globals_] == [("g", 0, 0), ("h", 4, 0)]
+    import pytest
+    with pytest.raises(IndexError):
+        f.temp_offset(1)
+
+
+def test_type_sizes_are_four_bytes_for_values_and_references():
+    from semantic.types import size_of, INTEGER, BOOLEAN, STRING, NULL, VOID, ArrayType, ClassType
+    assert [size_of(t) for t in [INTEGER, BOOLEAN, STRING, NULL, ArrayType(INTEGER), ClassType("C")]] == [4] * 6
+    assert size_of(VOID) == 0
+
+
+def test_memory_follows_source_order_across_scopes():
+    from helpers import compile_source
+    result = compile_source("let a = 0; { let b = 1; } let c = 2; function f() { { let x = 1; } let y = 2; }")
+    assert not result.errors
+    symbols = {s.name: s for sc in result.analyzer.symbol_table.scopes for s in sc.symbols.values()}
+    assert [symbols[n].offset for n in ["a", "b", "c"]] == [0, 4, 8]
+    assert [symbols[n].offset for n in ["x", "y"]] == [12, 16]

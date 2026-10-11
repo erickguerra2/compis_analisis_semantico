@@ -64,6 +64,11 @@ def _symbols_to_json(analyzer: SemanticAnalyzer):
                     "category": symbol.category.name.lower(),
                     "scope": scope.kind.name.lower(),
                     "scopeId": index,
+                    "offset": symbol.offset,
+                    "size": symbol.size,
+                    "label": symbol.label,
+                    "storage": symbol.storage,
+                    "depth": symbol.depth,
                     "parentScopeId": scope_ids.get(id(scope.parent)) if scope.parent is not None else None,
                 }
             )
@@ -87,6 +92,7 @@ def compile_source(source: str):
     tac = []
     strings = {}
     tac_error = None
+    activation_records = []
     if not errors:
         analyzer = SemanticAnalyzer()
         analyzer.visit(tree)
@@ -106,10 +112,26 @@ def compile_source(source: str):
                 emitter = TacGenerator(analyzer, tree).generate()
                 tac = emitter.lines()
                 strings = emitter.strings
+                activation_records = [
+                    {"name": record.name, "depth": record.depth,
+                     "accessParent": record.access_parent, "size": record.size,
+                     "returnAddressOffset": record.return_address_offset,
+                     "controlLinkOffset": record.control_link_offset,
+                     "accessLinkOffset": record.access_link_offset,
+                     "parameters": [{"name": s.name, "offset": s.offset} for s in record.parameters],
+                     "locals": [{"name": s.name, "offset": s.offset} for s in record.locals],
+                     "temporaries": [{"name": f"t{i}", "offset": record.temp_offset(i)}
+                                     for i in range(record.ntemporals)]}
+                    for record in analyzer.activation_records.values()
+                ]
             except NotImplementedError as error:
                 tac_error = str(error)
 
+    if not errors and tac_error is None:
+        symbols = _symbols_to_json(analyzer)
+
     return {
+        "activationRecords": activation_records,
         "success": not errors,
         "errors": errors,
         "symbols": symbols,

@@ -139,3 +139,8 @@ def is_assignable(target: Optional[Type], value: Optional[Type]) -> bool:
     if isinstance(target, ArrayType) and isinstance(value, ArrayType) and isinstance(value.base, NullType):
         return True
     return False
+
+
+def size_of(type_: Optional[Type]) -> int:
+    """Bytes por valor o referencia en el layout TAC."""
+    return 0 if isinstance(type_, (VoidType, FunctionType)) else 4

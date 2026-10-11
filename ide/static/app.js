@@ -59,10 +59,11 @@ function renderSymbols(symbols) {
     return;
   }
   symbolsPanel.innerHTML = `<div class="table-wrap"><table>
-    <thead><tr><th>Nombre</th><th>Tipo</th><th>Categoría</th><th>Ámbito</th></tr></thead>
+    <thead><tr><th>Nombre</th><th>Tipo</th><th>Categoria</th><th>Ambito</th><th>Offset</th><th>Size</th><th>Label</th><th>Storage</th><th>Depth</th></tr></thead>
     <tbody>${symbols.map(symbol => `<tr>
       <td>${escapeHtml(symbol.name)}</td><td>${escapeHtml(symbol.type)}</td>
       <td>${escapeHtml(symbol.category)}</td><td>${escapeHtml(symbol.scope)} #${symbol.scopeId}</td>
+      ${[symbol.offset, symbol.size, symbol.label, symbol.storage, symbol.depth].map(value => `<td>${escapeHtml(value ?? "-")}</td>`).join("")}
     </tr>`).join("")}</tbody>
   </table></div>`;
 }
@@ -165,6 +166,13 @@ async function compile() {
     if (!response.ok) throw new Error(result.error || "No se pudo compilar.");
     renderErrors(result.errors);
     renderSymbols(result.symbols);
+    const records = result.activationRecords || [];
+    symbolsPanel.innerHTML += `<h3>Registros de activacion</h3><div class="table-wrap"><table>
+      <thead><tr><th>Unidad</th><th>Depth</th><th>Enlace de acceso</th><th>Bytes</th><th>Slots (offset desde fp)</th></tr></thead>
+      <tbody>${records.map(record => `<tr><td>${escapeHtml(record.name)}</td><td>${record.depth}</td>
+        <td>${escapeHtml(record.accessParent ?? "0")}</td><td>${record.size}</td>
+        <td>${escapeHtml(["retorno: 0", "control: 4", "acceso: 8", ...[...record.parameters, ...record.locals, ...record.temporaries].map(slot => `${slot.name}: ${slot.offset}`)].join(", "))}</td></tr>`).join("")}</tbody>
+    </table></div>`;
     renderTree(result.tree);
     renderTac(result);
   } catch (error) {

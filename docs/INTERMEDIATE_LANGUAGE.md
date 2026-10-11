@@ -236,3 +236,74 @@ dentro del bloque `try`) no emite `try_end`.
 - No se comprueba división entre cero.
 - El despacho de métodos será estático según el tipo declarado.
 - Un programa con errores léxicos, sintácticos o semánticos no genera TAC.
+
+
+## Funciones y llamadas (turno 3)
+
+Las declaraciones se agregan a `pending`: primero se emite `main`, luego
+las funciones en orden de encuentro. Al emitir una funcion externa sus funciones
+anidadas se agregan al final de la cola. Las etiquetas son `f`, `externa.interna`
+y `Clase.metodo` para los futuros metodos. Cada unidad reinicia los temporales;
+las etiquetas de control conservan su contador global.
+
+Los argumentos se evaluan de izquierda a derecha y todos sus operandos se
+conservan hasta emitir todos los `param` en ese orden. Despues se liberan sus
+temporales y se emite `call`. Las llamadas sin tipo de retorno no tienen resultado.
+
+```text
+begin_func main
+param 1
+param 2
+t0 = call add, 2
+print t0
+end_func main
+begin_func add
+t0 = a + b
+return t0
+end_func add
+```
+
+`return e` evalua `e`, emite un `try_end` por cada handler activo en esa
+funcion, emite `return e` y libera el temporal consumido. `return;` no lleva
+operando. Se agrega un `return` sin operando al final de una funcion si su
+ultima instruccion no es un `return`. No se genera TAC con errores semanticos,
+incluidos argumentos invalidos y retornos fuera de una funcion.
+
+## Memoria y registros de activacion (turno 3)
+
+`MemoryLayout` recorre el arbol anotado y los scopes conservados del analizador.
+Los simbolos reciben `offset`, `size`, `label`, `storage` y `depth`. `label` solo
+se asigna a funciones y metodos. Los valores integer, boolean y referencias
+(string, arreglos, objetos y null) ocupan 4 bytes. `size_of` expone ese contrato.
+
+Las variables fuera de funciones se ubican en el segmento global, con offset
+`4*k` en orden de declaracion y `depth=0`. Los bloques de nivel superior tambien
+usan almacenamiento global. Los locales de bloques hermanos no reutilizan espacio.
+
+| Slot | Offset desde fp |
+|---|---|
+| Direccion de retorno | 0 |
+| Enlace de control (fp del llamador) | 4 |
+| Enlace de acceso (fp del contenedor lexico) | 8 |
+| Parametro i | 12 + 4*i |
+| Local k | 12 + 4*nparams + 4*k |
+| Temporal tN | 12 + 4*(nparams + nlocales) + 4*N |
+
+`ActivationRecord.size` es `12 + 4*(nparams + nlocales + ntemporals)`.
+El numero de temporales se completa despues de generar TAC con
+`emitter.function_temps`. `main` tiene registro para sus temporales, mientras sus
+variables se almacenan en el segmento global. En metodos se reserva `this` como
+parametro 0; su generacion y el layout heredado de campos corresponden al turno 4.
+Los campos se identifican con `storage=field`; sus offsets quedan pendientes de ese turno.
+Los arreglos almacenan longitud en offset 0 y elemento i en `4 + 4*i`.
+Los strings referencian la zona de datos; concat y to_str producen referencias nuevas.
+
+Un local de funcion superior tiene `depth=1`, uno de funcion anidada `depth=2`,
+etc. El enlace de acceso de una funcion superior es 0; una funcion anidada apunta
+a su contenedor lexico, identificado por `ActivationRecord.access_parent`.
+El acceso a una variable externa usa su profundidad para seguir dichos enlaces en
+la futura fase MIPS. No se generan closures como valores de primera clase.
+
+El IDE expone los cinco campos de memoria en la tabla de simbolos y muestra los
+registros de activacion con parametros, locales, temporales y slots de control.
+`POST /compile` incluye `activationRecords`; si no se genera TAC la lista esta vacia.

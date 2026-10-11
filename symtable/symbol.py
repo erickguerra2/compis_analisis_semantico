@@ -29,3 +29,8 @@ class Symbol:
     return_type: Optional["Type"] = None
     parent_class: Optional[str] = None
     class_scope: Optional["Scope"] = None
+    offset: Optional[int] = None
+    size: Optional[int] = None
+    label: Optional[str] = None
+    storage: Optional[str] = None
+    depth: int = 0
