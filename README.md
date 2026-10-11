@@ -13,6 +13,7 @@
 - [Arquitectura](docs/ARCHITECTURE.md)
 - [Instalación, pruebas y ejecución del IDE](docs/GETTING_STARTED.md)
 - [Decisiones de diseño](docs/DESIGN_DECISIONS.md)
+- [Lenguaje intermedio (TAC)](docs/INTERMEDIATE_LANGUAGE.md)
 
 # 🧪 Compiscript
 

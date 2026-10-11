@@ -39,8 +39,7 @@ se conserva por compatibilidad con la implementación actual y debe ratificarse 
 
 - La gramática no incluye `float` ni literal flotante, aunque el sistema de tipos ya contiene el
   tipo y la promoción `integer -> float`.
-- `try/catch` todavía no declara ni asigna un tipo a la variable de `catch`; el equipo debe elegir
-  si será `string`, un tipo de error o un tipo dinámico.
+
 # Decisiones de generación TAC
 
 - El TAC usa objetos `Quad` y operandos tipados; `Emitter.lines()` es la
@@ -51,3 +50,10 @@ se conserva por compatibilidad con la implementación actual y debe ratificarse 
   para desacoplar la generación del recorrido mutable de la tabla de símbolos.
 - No se genera TAC cuando existe cualquier error previo. Las construcciones de
   turnos posteriores fallan explícitamente con `NotImplementedError`.
+- La variable de `catch` es de tipo `string` y vive en el ámbito del bloque
+  `catch`: recibe el mensaje del error lanzado.
+- `switch` tiene fall-through, y `break` y `continue` cierran con `try_end`
+  cada `try` que abandonan.
+- El IDE devuelve el TAC en `POST /compile` (`tac`, `strings`) y, mientras
+  haya construcciones sin generación, las reporta en `tacError` en lugar de
+  fallar.

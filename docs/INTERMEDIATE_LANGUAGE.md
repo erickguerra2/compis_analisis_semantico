@@ -86,6 +86,150 @@ a la rama falsa con `ifFalse`, y hace que ambas ramas copien su valor a `r`.
 Si el resultado de `+` es string, se emite `concat`. Todo operando integer,
 boolean o null se convierte previamente mediante `to_str`.
 
+## Estructuras de control
+
+La condición de `if`, `while`, `do-while` y `for` se evalúa a un operando, se
+usa en el salto y se libera. Si la condición es una variable se usa
+directamente, sin copiarla a un temporal. Las etiquetas de cada construcción se
+numeran en el orden en que aparecen en su patrón.
+
+`if` con `else`; sin `else` el salto va directo a `Lend` y no hay `goto`:
+
+```text
+<cond → c>
+ifFalse c goto Lelse
+<then>
+goto Lend
+Lelse:
+<else>
+Lend:
+```
+
+`while` (`continue` salta a `Lstart`, `break` a `Lend`):
+
+```text
+Lstart:
+<cond → c>
+ifFalse c goto Lend
+<cuerpo>
+goto Lstart
+Lend:
+```
+
+`do-while` (`continue` salta a `Lcont`, `break` a `Lend`):
+
+```text
+Lstart:
+<cuerpo>
+Lcont:
+<cond → c>
+if c goto Lstart
+Lend:
+```
+
+`for` (`continue` salta a `Lcont`, `break` a `Lend`). La condición y la
+actualización son opcionales; sin condición no se emite el `ifFalse`:
+
+```text
+<init>
+Lstart:
+<cond → c>
+ifFalse c goto Lend
+<cuerpo>
+Lcont:
+<actualización>
+goto Lstart
+Lend:
+```
+
+Por ejemplo, `for (let i = 0; i < 3; i = i + 1) { print(i); }` produce:
+
+```text
+i = 0
+L0:
+t0 = i < 3
+ifFalse t0 goto L2
+print i
+L1:
+t0 = i + 1
+i = t0
+goto L0
+L2:
+```
+
+`switch` evalúa su expresión una sola vez y la compara con cada `case` en
+orden. El operando de la expresión se mantiene vivo durante las comparaciones:
+
+```text
+<expr → s>
+t = s == <expr del case 0>
+if t goto Lcase_0
+t = s == <expr del case 1>
+if t goto Lcase_1
+goto Ldefault
+Lcase_0:
+<cuerpo del case 0>
+Lcase_1:
+<cuerpo del case 1>
+Ldefault:
+<cuerpo del default>
+Lend:
+```
+
+Sin `default`, el salto posterior a las comparaciones va a `Lend`. Entre los
+cuerpos no hay saltos, así que la ejecución cae al siguiente `case`
+(fall-through) hasta encontrar un `break`. `break` sale de la construcción más
+cercana, sea ciclo o `switch`; `continue` dentro de un `switch` va al ciclo que
+lo contiene.
+
+## Excepciones
+
+| Instrucción | Significado |
+|---|---|
+| `try_begin L0` | registra `L0` como handler activo |
+| `try_end` | desregistra el handler activo más reciente |
+| `throw .str0` | salta al handler activo con el string como mensaje; sin handler, el programa termina e imprime el mensaje |
+| `catch err` | primera instrucción de un handler: guarda el mensaje en `err` |
+
+`try/catch`:
+
+```text
+try_begin Lcatch
+<bloque try>
+try_end
+goto Lend
+Lcatch:
+catch err
+<bloque catch>
+Lend:
+```
+
+La variable del `catch` es de tipo `string`, ya está inicializada y solo existe
+dentro del bloque `catch`. Si su nombre ya estaba en uso, se renombra como
+cualquier otra declaración (`err_1`).
+
+Un `break` o `continue` que abandona un `try` emite antes del `goto` un
+`try_end` por cada `try` abierto desde que se entró al ciclo o `switch` de
+destino, para que no queden handlers registrados:
+
+```text
+try_begin L2
+t0 = i == 2
+ifFalse t0 goto L4
+try_end
+goto L1
+L4:
+try_end
+goto L3
+L2:
+catch e
+print e
+L3:
+```
+
+Un salto que no sale del `try` (por ejemplo, el `break` de un ciclo que está
+dentro del bloque `try`) no emite `try_end`.
+
 ## Supuestos
 
 - Las funciones no son valores de primera clase.
