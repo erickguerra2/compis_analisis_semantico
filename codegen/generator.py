@@ -6,6 +6,10 @@ from tac import Emitter, Var
 
 from .control_flow import ControlFlowMixin
 from .expressions import ExpressionsMixin
+from .functions import FunctionsMixin
+from symtable.activation import MemoryLayout
+from symtable.symbol import SymbolCategory
+from symtable.scope import ScopeKind
 
 
 class UnsupportedConstructionsMixin:
@@ -18,7 +22,7 @@ class UnsupportedConstructionsMixin:
     visitReturnStatement = _unsupported
 
 
-class TacGenerator(ExpressionsMixin, ControlFlowMixin, UnsupportedConstructionsMixin, CompiscriptVisitor):
+class TacGenerator(FunctionsMixin, ExpressionsMixin, ControlFlowMixin, UnsupportedConstructionsMixin, CompiscriptVisitor):
     def __init__(self, analyzer, tree):
         self.analyzer = analyzer
         self.tree = tree
@@ -32,12 +36,28 @@ class TacGenerator(ExpressionsMixin, ControlFlowMixin, UnsupportedConstructionsM
     def generate(self):
         if self.analyzer.errors.has_errors():
             return self.emitter
+        layout = MemoryLayout(self.analyzer, self.tree)
+        # El orden fuente incluye par?metros y declaraciones de cuerpos pendientes.
+        declarations = []
+        def collect(ctx):
+            annotation = self._annotation(ctx)
+            if annotation and annotation.symbol and annotation.symbol.category in {
+                SymbolCategory.VARIABLE, SymbolCategory.CONSTANT, SymbolCategory.PARAMETER
+            } and annotation.symbol.scope.kind is not ScopeKind.CLASS:
+                declarations.append((ctx.start.tokenIndex, annotation.symbol))
+            for child in getattr(ctx, "children", None) or []:
+                if hasattr(child, "getRuleIndex"):
+                    collect(child)
+        collect(self.tree)
+        for _, symbol in sorted(declarations, key=lambda item: item[0]):
+            self._var_for_symbol(symbol)
         self.emitter.begin_function("main")
         for statement in self.tree.statement():
             self.visit(statement)
         self.emitter.end_function("main")
         while self.pending:
-            self.visit(self.pending.pop(0))
+            self._emit_function(self.pending.pop(0))
+        layout.finalize(self.emitter)
         return self.emitter
 
     def _annotation(self, ctx):
@@ -65,9 +85,6 @@ class TacGenerator(ExpressionsMixin, ControlFlowMixin, UnsupportedConstructionsM
             self._name_counts[symbol.name] = count + 1
             self._symbol_vars[key] = Var(name)
         return self._symbol_vars[key]
-
-    def gen_function_call(self, symbol, args_ctx, ctx):
-        raise NotImplementedError("construcción no soportada todavía")
 
     def gen_method_call(self, receiver, method_symbol, args_ctx, ctx):
         raise NotImplementedError("construcción no soportada todavía")
