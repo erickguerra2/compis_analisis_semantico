@@ -60,6 +60,35 @@ class ControlFlowMixin:
         self.emitter.place_label(end)
         return None
 
+    def visitSwitchStatement(self, ctx):
+        cases = ctx.switchCase()
+        default_ctx = ctx.defaultCase()
+        subject = self.visit(ctx.expression())
+        case_labels = [self.emitter.new_label() for _ in cases]
+        default_label = self.emitter.new_label() if default_ctx is not None else None
+        end = self.emitter.new_label()
+        for case_ctx, label in zip(cases, case_labels):
+            value = self.visit(case_ctx.expression())
+            self.emitter.free_temp(value)
+            matches = self.emitter.new_temp()
+            self.emitter.emit("==", subject, value, matches)
+            self.emitter.emit("if", matches, res=label)
+            self.emitter.free_temp(matches)
+        self.emitter.emit("goto", res=default_label or end)
+        self.emitter.free_temp(subject)
+        self.loop_stack.append((end, None, self.try_depth))
+        for case_ctx, label in zip(cases, case_labels):
+            self.emitter.place_label(label)
+            for statement in case_ctx.statement():
+                self.visit(statement)
+        if default_ctx is not None:
+            self.emitter.place_label(default_label)
+            for statement in default_ctx.statement():
+                self.visit(statement)
+        self.loop_stack.pop()
+        self.emitter.place_label(end)
+        return None
+
     def visitBreakStatement(self, ctx):
         break_label, _, try_depth = self.loop_stack[-1]
         self._leave_tries(try_depth)

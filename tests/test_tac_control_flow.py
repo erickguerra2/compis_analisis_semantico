@@ -113,6 +113,58 @@ def test_condition_with_short_circuit_operators():
     ]
 
 
+def test_switch_falls_through_to_following_cases():
+    assert tac("let x = 2; switch (x) { case 1: print(1); case 2: print(2); default: print(0); }") == [
+        "x = 2", "t0 = x == 1", "if t0 goto L0", "t0 = x == 2", "if t0 goto L1", "goto L2",
+        "L0:", "print 1", "L1:", "print 2", "L2:", "print 0", "L3:",
+    ]
+
+
+def test_switch_without_default_jumps_to_end():
+    assert tac("let x = 2; switch (x) { case 1: print(1); break; case 2: print(2); break; }") == [
+        "x = 2", "t0 = x == 1", "if t0 goto L0", "t0 = x == 2", "if t0 goto L1", "goto L2",
+        "L0:", "print 1", "goto L2", "L1:", "print 2", "goto L2", "L2:",
+    ]
+
+
+def test_switch_keeps_subject_temporary_alive_while_comparing():
+    assert tac("let x = 2; switch (x + 1) { case 1 + 1: print(1); break; default: print(0); }") == [
+        "x = 2", "t0 = x + 1", "t1 = 1 + 1", "t1 = t0 == t1", "if t1 goto L0", "goto L1",
+        "L0:", "print 1", "goto L2", "L1:", "print 0", "L2:",
+    ]
+
+
+def test_switch_with_only_default():
+    assert tac("let x = 2; switch (x) { default: print(0); }") == ["x = 2", "goto L0", "L0:", "print 0", "L1:"]
+
+
+def test_break_in_switch_inside_loop_leaves_only_the_switch():
+    assert tac("let i = 0; while (i < 3) { switch (i) { case 1: break; default: print(i); } i = i + 1; }") == [
+        "i = 0", "L0:", "t0 = i < 3", "ifFalse t0 goto L1",
+        "t0 = i == 1", "if t0 goto L2", "goto L3",
+        "L2:", "goto L4", "L3:", "print i", "L4:",
+        "t0 = i + 1", "i = t0", "goto L0", "L1:",
+    ]
+
+
+def test_continue_in_switch_inside_loop_targets_the_loop():
+    source = "let i = 0; while (i < 3) { i = i + 1; switch (i) { case 1: continue; case 2: break; } print(i); }"
+    assert tac(source) == [
+        "i = 0", "L0:", "t0 = i < 3", "ifFalse t0 goto L1", "t0 = i + 1", "i = t0",
+        "t0 = i == 1", "if t0 goto L2", "t0 = i == 2", "if t0 goto L3", "goto L4",
+        "L2:", "goto L0", "L3:", "goto L4", "L4:",
+        "print i", "goto L0", "L1:",
+    ]
+
+
+def test_nested_switch_break_targets_inner_switch():
+    assert tac("let x = 1; switch (x) { case 1: switch (x) { case 1: break; } print(9); break; }") == [
+        "x = 1", "t0 = x == 1", "if t0 goto L0", "goto L1",
+        "L0:", "t0 = x == 1", "if t0 goto L2", "goto L3", "L2:", "goto L3", "L3:",
+        "print 9", "goto L1", "L1:",
+    ]
+
+
 @pytest.mark.parametrize(
     "source, rule",
     [
@@ -121,6 +173,8 @@ def test_condition_with_short_circuit_operators():
         ("if (true) { break; }", "break-fuera-de-bucle"),
         ("if (1) { print(1); }", "condicion-no-booleana"),
         ("let i = 0; while (i) { i = i + 1; }", "condicion-no-booleana"),
+        ("let x = 2; switch (x) { case 1: continue; }", "continue-fuera-de-bucle"),
+        ('let x = 2; switch (x) { case "a": print(1); }', "switch-case-tipo-incompatible"),
     ],
 )
 def test_invalid_control_flow_generates_no_tac(source, rule):

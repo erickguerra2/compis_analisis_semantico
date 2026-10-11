@@ -15,7 +15,6 @@ class UnsupportedConstructionsMixin:
     visitFunctionDeclaration = _unsupported
     visitClassDeclaration = _unsupported
     visitForeachStatement = _unsupported
-    visitSwitchStatement = _unsupported
     visitTryCatchStatement = _unsupported
     visitReturnStatement = _unsupported
 
