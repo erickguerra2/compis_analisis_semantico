@@ -4,6 +4,7 @@ from generated.CompiscriptVisitor import CompiscriptVisitor
 
 from tac import Emitter, Var
 
+from .control_flow import ControlFlowMixin
 from .expressions import ExpressionsMixin
 
 
@@ -13,19 +14,13 @@ class UnsupportedConstructionsMixin:
 
     visitFunctionDeclaration = _unsupported
     visitClassDeclaration = _unsupported
-    visitIfStatement = _unsupported
-    visitWhileStatement = _unsupported
-    visitDoWhileStatement = _unsupported
-    visitForStatement = _unsupported
     visitForeachStatement = _unsupported
     visitSwitchStatement = _unsupported
     visitTryCatchStatement = _unsupported
-    visitBreakStatement = _unsupported
-    visitContinueStatement = _unsupported
     visitReturnStatement = _unsupported
 
 
-class TacGenerator(ExpressionsMixin, UnsupportedConstructionsMixin, CompiscriptVisitor):
+class TacGenerator(ExpressionsMixin, ControlFlowMixin, UnsupportedConstructionsMixin, CompiscriptVisitor):
     def __init__(self, analyzer, tree):
         self.analyzer = analyzer
         self.tree = tree
