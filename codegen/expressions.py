@@ -25,7 +25,7 @@ class ExpressionsMixin:
         expressions = ctx.expression()
         if len(expressions) != 1:
             raise NotImplementedError("construcción no soportada todavía")
-        symbol = self._resolve_name(ctx.Identifier().getText(), ctx)
+        symbol = self._symbol_of(ctx)
         target = self._var_for_symbol(symbol)
         value = self.visit(expressions[0])
         self.emitter.emit("copy", value, res=target)

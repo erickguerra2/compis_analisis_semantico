@@ -73,11 +73,6 @@ class TacGenerator(ExpressionsMixin, UnsupportedConstructionsMixin, CompiscriptV
             self._symbol_vars[key] = Var(name)
         return self._symbol_vars[key]
 
-    def _resolve_name(self, name, ctx):
-        annotation = self._annotation(ctx)
-        scope = annotation.scope if annotation is not None else self.analyzer.symbol_table.global_scope
-        return scope.resolve(name)
-
     def gen_function_call(self, symbol, args_ctx, ctx):
         raise NotImplementedError("construcción no soportada todavía")
 

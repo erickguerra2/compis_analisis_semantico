@@ -49,3 +49,21 @@ def test_semantic_error_produces_no_tac():
     assert result.errors
     assert result.tac == []
     assert result.emitter is None
+
+
+def test_assignment_statement_targets_local_declared_in_block():
+    result = compile_source("{ let y = 1; y = 2; print(y); }")
+    assert result.errors == []
+    assert result.tac == ["begin_func main", "y = 1", "y = 2", "print y", "end_func main"]
+
+
+def test_assignment_statement_respects_shadowing():
+    result = compile_source(
+        "let i = 0; { i = 5; let i = 10; i = i + 1; print(i); } i = 7; print(i);"
+    )
+    assert result.errors == []
+    assert result.tac == [
+        "begin_func main", "i = 0", "i = 5", "i_1 = 10", "t0 = i_1 + 1", "i_1 = t0",
+        "print i_1", "i = 7", "print i", "end_func main",
+    ]
+    assert result.emitter.live_temps() == 0

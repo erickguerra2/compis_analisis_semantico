@@ -308,6 +308,7 @@ class SemanticAnalyzer(CompiscriptVisitor):
                     token.line, token.column, f"variable '{name}' no declarada", "uso-variable-no-declarada"
                 )
                 return None
+            self.annotate(ctx, symbol.type, symbol)
             self._check_assignment_target(symbol, value_type, token, expressions[0].start)
             return None
         base_type = self.visit(expressions[0])
