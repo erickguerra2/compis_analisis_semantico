@@ -3,6 +3,7 @@ from __future__ import annotations
 from generated.CompiscriptParser import CompiscriptParser
 
 from semantic.types import BOOLEAN, INTEGER, STRING
+from symtable.symbol import SymbolCategory
 from tac.quad import Const, Temp, Var
 
 
@@ -186,7 +187,7 @@ class ExpressionsMixin:
         atom = ctx.primaryAtom()
         if isinstance(atom, CompiscriptParser.IdentifierExprContext):
             symbol = self._symbol_of(atom) or self._symbol_of(ctx)
-            value = self._var_for_symbol(symbol)
+            value = None if symbol.category is SymbolCategory.FUNCTION else self._var_for_symbol(symbol)
         elif isinstance(atom, CompiscriptParser.NewExprContext):
             value = self.gen_new(self._symbol_of(atom), atom.arguments(), atom)
         elif isinstance(atom, CompiscriptParser.ThisExprContext):

@@ -57,3 +57,10 @@ def test_names_follow_declaration_order_in_pending_bodies():
     assert "x_1 = 1" in result.tac
     assert "param x_1" in result.tac
     assert "print x" in result.tac
+
+
+def test_function_names_do_not_consume_variable_names():
+    result = compile_source("function f() {} f(); { let f = 1; print(f); }")
+    assert not result.errors
+    assert "f = 1" in result.tac
+    assert "print f" in result.tac
