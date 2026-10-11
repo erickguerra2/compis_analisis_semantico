@@ -89,6 +89,22 @@ class ControlFlowMixin:
         self.emitter.place_label(end)
         return None
 
+    def visitTryCatchStatement(self, ctx):
+        try_block, catch_block = ctx.block()
+        handler = self.emitter.new_label()
+        end = self.emitter.new_label()
+        self.emitter.emit("try_begin", handler)
+        self.try_depth += 1
+        self.visit(try_block)
+        self.try_depth -= 1
+        self.emitter.emit("try_end")
+        self.emitter.emit("goto", res=end)
+        self.emitter.place_label(handler)
+        self.emitter.emit("catch", self._declare_var(ctx))
+        self.visit(catch_block)
+        self.emitter.place_label(end)
+        return None
+
     def visitBreakStatement(self, ctx):
         break_label, _, try_depth = self.loop_stack[-1]
         self._leave_tries(try_depth)

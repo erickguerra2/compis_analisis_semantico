@@ -180,6 +180,24 @@ class SemanticAnalyzer(CompiscriptVisitor):
         self.symbol_table.exit_scope()
         return None
 
+    def visitTryCatchStatement(self, ctx: CompiscriptParser.TryCatchStatementContext):
+        try_block, catch_block = ctx.block()
+        self.visit(try_block)
+
+        scope = self.symbol_table.enter_scope(ScopeKind.BLOCK)
+        self.annotate(catch_block, scope=scope)
+        error_symbol = Symbol(
+            name=ctx.Identifier().getText(),
+            category=SymbolCategory.VARIABLE,
+            type=STRING,
+            initialized=True,
+        )
+        self._declare(error_symbol, ctx)
+        self.annotate(ctx, STRING, error_symbol, scope)
+        self._visit_statements_detecting_dead_code(catch_block.statement())
+        self.symbol_table.exit_scope()
+        return None
+
     def visitBreakStatement(self, ctx: CompiscriptParser.BreakStatementContext):
         if self._loop_depth == 0 and self._switch_depth == 0:
             token = ctx.start

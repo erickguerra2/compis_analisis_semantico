@@ -165,6 +165,76 @@ def test_nested_switch_break_targets_inner_switch():
     ]
 
 
+def test_try_catch():
+    assert tac("try { print(1); } catch (err) { print(err); }") == [
+        "try_begin L0", "print 1", "try_end", "goto L1", "L0:", "catch err", "print err", "L1:",
+    ]
+
+
+def test_catch_variable_is_a_string():
+    result = compile_source('try { print(1); } catch (err) { print("fallo: " + err); }')
+    assert result.errors == []
+    assert result.tac[1:-1] == [
+        "try_begin L0", "print 1", "try_end", "goto L1",
+        "L0:", "catch err", "t0 = concat .str0, err", "print t0", "L1:",
+    ]
+    assert result.emitter.strings == {".str0": "fallo: "}
+
+
+def test_catch_variable_shadows_outer_name():
+    assert tac("let err = 5; try { print(err); } catch (err) { print(err); } print(err);") == [
+        "err = 5", "try_begin L0", "print err", "try_end", "goto L1",
+        "L0:", "catch err_1", "print err_1", "L1:", "print err",
+    ]
+
+
+def test_break_inside_try_inside_loop_closes_the_try():
+    source = "let i = 0; while (i < 3) { try { i = i + 1; if (i == 2) { break; } } catch (e) { print(e); } }"
+    assert tac(source) == [
+        "i = 0", "L0:", "t0 = i < 3", "ifFalse t0 goto L1",
+        "try_begin L2", "t0 = i + 1", "i = t0",
+        "t0 = i == 2", "ifFalse t0 goto L4", "try_end", "goto L1", "L4:",
+        "try_end", "goto L3", "L2:", "catch e", "print e", "L3:",
+        "goto L0", "L1:",
+    ]
+
+
+def test_continue_and_break_close_every_open_try():
+    source = (
+        "let i = 0; while (i < 3) { i = i + 1; "
+        "try { try { continue; } catch (a) { break; } } catch (b) { print(b); } }"
+    )
+    assert tac(source) == [
+        "i = 0", "L0:", "t0 = i < 3", "ifFalse t0 goto L1", "t0 = i + 1", "i = t0",
+        "try_begin L2", "try_begin L4", "try_end", "try_end", "goto L0",
+        "try_end", "goto L5", "L4:", "catch a", "try_end", "goto L1", "L5:",
+        "try_end", "goto L3", "L2:", "catch b", "print b", "L3:",
+        "goto L0", "L1:",
+    ]
+
+
+def test_break_in_loop_inside_try_does_not_close_the_try():
+    assert tac("try { let i = 0; while (i < 2) { i = i + 1; break; } } catch (e) { print(e); }") == [
+        "try_begin L0", "i = 0", "L2:", "t0 = i < 2", "ifFalse t0 goto L3",
+        "t0 = i + 1", "i = t0", "goto L3", "goto L2", "L3:",
+        "try_end", "goto L1", "L0:", "catch e", "print e", "L1:",
+    ]
+
+
+def test_switch_inside_try_inside_loop():
+    source = (
+        "let i = 0; while (i < 3) { try { switch (i) { case 0: break; case 1: continue; } "
+        "i = i + 1; } catch (e) { print(e); } }"
+    )
+    assert tac(source) == [
+        "i = 0", "L0:", "t0 = i < 3", "ifFalse t0 goto L1", "try_begin L2",
+        "t0 = i == 0", "if t0 goto L4", "t0 = i == 1", "if t0 goto L5", "goto L6",
+        "L4:", "goto L6", "L5:", "try_end", "goto L0", "L6:",
+        "t0 = i + 1", "i = t0", "try_end", "goto L3", "L2:", "catch e", "print e", "L3:",
+        "goto L0", "L1:",
+    ]
+
+
 @pytest.mark.parametrize(
     "source, rule",
     [
@@ -175,6 +245,10 @@ def test_nested_switch_break_targets_inner_switch():
         ("let i = 0; while (i) { i = i + 1; }", "condicion-no-booleana"),
         ("let x = 2; switch (x) { case 1: continue; }", "continue-fuera-de-bucle"),
         ('let x = 2; switch (x) { case "a": print(1); }', "switch-case-tipo-incompatible"),
+        ("try { print(1); } catch (e) { let n: integer = e; }", "asignacion-tipo-incompatible"),
+        ("try { print(1); } catch (e) { let e = 2; }", "redeclaracion-mismo-ambito"),
+        ("try { print(1); } catch (e) { print(1); } print(e);", "uso-variable-no-declarada"),
+        ("try { let a = 1; } catch (e) { print(a); }", "uso-variable-no-declarada"),
     ],
 )
 def test_invalid_control_flow_generates_no_tac(source, rule):
