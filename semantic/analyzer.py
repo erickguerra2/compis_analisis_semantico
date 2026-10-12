@@ -341,6 +341,15 @@ class SemanticAnalyzer(CompiscriptVisitor):
     def visitAssignExpr(self, ctx: CompiscriptParser.AssignExprContext):
         value_type = self.visit(ctx.assignmentExpr())
         lhs_type = self.visit(ctx.lhs)
+        if not self._is_assignable_target(ctx.lhs):
+            token = ctx.lhs.start
+            self.errors.report(
+                token.line,
+                token.column,
+                f"no se puede asignar a '{ctx.lhs.getText()}': solo se asigna a variables, campos o elementos",
+                "asignacion-destino-invalido",
+            )
+            return lhs_type
         symbol = getattr(ctx.lhs, "resolved_symbol", None) or self._resolve_simple_identifier(ctx.lhs)
         if symbol is not None:
             token = ctx.lhs.start
@@ -385,6 +394,12 @@ class SemanticAnalyzer(CompiscriptVisitor):
             )
             return
         symbol.initialized = True
+
+    def _is_assignable_target(self, left_hand_side_ctx) -> bool:
+        suffixes = left_hand_side_ctx.suffixOp()
+        if suffixes:
+            return not isinstance(suffixes[-1], CompiscriptParser.CallExprContext)
+        return isinstance(left_hand_side_ctx.primaryAtom(), CompiscriptParser.IdentifierExprContext)
 
     def _resolve_simple_identifier(self, left_hand_side_ctx) -> Optional[Symbol]:
         if left_hand_side_ctx.suffixOp():

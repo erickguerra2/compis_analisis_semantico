@@ -86,3 +86,20 @@ def test_nested_assignment_expression_checks_constant_reassignment():
     analyzer = _analyze(source)
 
     assert "asignacion-a-constante" in _rules(analyzer)
+
+
+def test_assigning_to_a_call_result_or_this_is_reported():
+    call = _analyze("function f(): integer { return 1; } f() = 3;")
+    this = _analyze("class C { function m() { this = new C(); } }")
+
+    assert "asignacion-destino-invalido" in _rules(call)
+    assert "asignacion-destino-invalido" in _rules(this)
+
+
+def test_variables_fields_and_elements_are_valid_targets():
+    analyzer = _analyze(
+        "class C { let n: integer; } let c: C = new C(); let a = [1]; let x = 0; "
+        "x = 2; c.n = 3; a[0] = 4; x = c.n = a[0] = 5;"
+    )
+
+    assert not analyzer.errors.has_errors()
