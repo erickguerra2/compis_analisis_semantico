@@ -57,3 +57,26 @@ se conserva por compatibilidad con la implementación actual y debe ratificarse 
 - El IDE devuelve el TAC en `POST /compile` (`tac`, `strings`) y, mientras
   haya construcciones sin generación, las reporta en `tacError` en lugar de
   fallar.
+- El despacho de métodos es estático: `obj.m()` llama a `K.m`, con `K` la
+  clase más cercana al tipo declarado de `obj` que declara `m`. Sin
+  polimorfismo dinámico no hace falta tabla de métodos virtuales ni
+  encabezado en el objeto.
+- El constructor se hereda. El analizador y el generador buscan
+  `constructor` subiendo por la herencia, así que `new Dog("Rex")` es válido
+  cuando solo `Animal` lo declara (caso de `program/program.cps`).
+- Los inicializadores de campos se emiten en el sitio de cada `new`, de la
+  clase raíz a la instanciada y antes del constructor. `new` entrega la
+  memoria en cero, por lo que un campo sin inicializador vale `0`, `false` o
+  `null` sin instrucciones extra.
+- Un campo redeclarado en una subclase reutiliza el slot del campo heredado,
+  de modo que el layout del padre siempre es prefijo del layout del hijo.
+- Un literal de arreglo cuyos elementos son arreglos suma una dimensión:
+  `[[1, 2], [3, 4]]` es `integer[][]`.
+- Toda lectura y escritura por índice emite `bounds` antes del acceso. Es el
+  único error en tiempo de ejecución; su mensaje se interna como literal
+  string y el `catch` lo recibe en su variable.
+- `foreach` guarda el arreglo, su longitud y el contador en temporales que
+  viven todo el ciclo, para que reasignar la variable recorrida no altere la
+  iteración.
+- En asignaciones a campos y elementos se evalúa primero el valor y después
+  el destino, igual que en la asignación a variables del turno 1.
