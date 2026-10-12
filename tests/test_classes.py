@@ -187,3 +187,25 @@ def test_unknown_base_class_and_self_inheritance_are_reported():
 
     assert "clase-base-no-declarada" in _rules(analyzer)
     assert "herencia-ciclica" in _rules(analyzer)
+
+
+def test_property_suffixes_are_annotated_with_resolved_member():
+    lexer = CompiscriptLexer(InputStream(
+        """
+        class Animal { function speak(): string { return "..."; } }
+        class Dog: Animal {}
+        let dog: Dog = new Dog();
+        print(dog.speak());
+        """
+    ))
+    tree = CompiscriptParser(CommonTokenStream(lexer)).program()
+    analyzer = SemanticAnalyzer()
+    analyzer.visit(tree)
+    lhs = tree.statement(3).printStatement().expression().assignmentExpr().conditionalExpr() \
+        .logicalOrExpr().logicalAndExpr(0).equalityExpr(0).relationalExpr(0).additiveExpr(0) \
+        .multiplicativeExpr(0).unaryExpr(0).primaryExpr().leftHandSide()
+    member, call = lhs.suffixOp()
+
+    speak = analyzer.symbol_table.resolve_member("Animal", "speak")
+    assert analyzer.annotation_of(member).symbol is speak
+    assert analyzer.annotation_of(call).type.name == "string"

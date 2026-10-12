@@ -25,7 +25,10 @@ class ExpressionsMixin:
     def visitAssignment(self, ctx):
         expressions = ctx.expression()
         if len(expressions) != 1:
-            raise NotImplementedError("construcción no soportada todavía")
+            value = self.visit(expressions[1])
+            base = self.visit(expressions[0])
+            self.emitter.free_temp(self.gen_property_store(base, ctx.Identifier().getText(), value, ctx))
+            return None
         symbol = self._symbol_of(ctx)
         target = self._var_for_symbol(symbol)
         value = self.visit(expressions[0])
@@ -48,7 +51,13 @@ class ExpressionsMixin:
         value = self.visit(ctx.assignmentExpr())
         lhs = ctx.lhs
         if lhs.suffixOp():
-            raise NotImplementedError("construcción no soportada todavía")
+            *prefix, last = lhs.suffixOp()
+            base = self._evaluate_chain(lhs, prefix)
+            if isinstance(last, CompiscriptParser.IndexExprContext):
+                return self.gen_index_store(base, last.expression(), value, last)
+            if isinstance(last, CompiscriptParser.PropertyAccessExprContext):
+                return self.gen_property_store(base, last.Identifier().getText(), value, last)
+            raise NotImplementedError("no se puede asignar al resultado de una llamada")
         symbol = self._symbol_of(lhs) or self._symbol_of(lhs.primaryAtom())
         target = self._var_for_symbol(symbol)
         self.emitter.emit("copy", value, res=target)
@@ -56,7 +65,9 @@ class ExpressionsMixin:
         return target
 
     def visitPropertyAssignExpr(self, ctx):
-        raise NotImplementedError("construcción no soportada todavía")
+        value = self.visit(ctx.assignmentExpr())
+        base = self.visit(ctx.lhs)
+        return self.gen_property_store(base, ctx.Identifier().getText(), value, ctx)
 
     def visitExprNoAssign(self, ctx):
         return self.visit(ctx.conditionalExpr())
@@ -184,7 +195,11 @@ class ExpressionsMixin:
         return Const(int(text))
 
     def visitLeftHandSide(self, ctx):
+        return self._evaluate_chain(ctx, ctx.suffixOp())
+
+    def _evaluate_chain(self, ctx, suffixes):
         atom = ctx.primaryAtom()
+        symbol = None
         if isinstance(atom, CompiscriptParser.IdentifierExprContext):
             symbol = self._symbol_of(atom) or self._symbol_of(ctx)
             value = None if symbol.category is SymbolCategory.FUNCTION else self._var_for_symbol(symbol)
@@ -194,13 +209,21 @@ class ExpressionsMixin:
             value = self.gen_this(atom)
         else:
             raise NotImplementedError("construcción no soportada todavía")
-        for suffix in ctx.suffixOp():
+        index = 0
+        while index < len(suffixes):
+            suffix = suffixes[index]
+            following = suffixes[index + 1] if index + 1 < len(suffixes) else None
             if isinstance(suffix, CompiscriptParser.CallExprContext):
                 value = self.gen_function_call(symbol, suffix.arguments(), suffix)
             elif isinstance(suffix, CompiscriptParser.IndexExprContext):
                 value = self.gen_index(value, suffix.expression(), suffix)
+            elif isinstance(following, CompiscriptParser.CallExprContext):
+                # `.m(...)` es una llamada a método: el receptor viaja como parámetro 0.
+                value = self.gen_method_call(value, self._symbol_of(suffix), following.arguments(), following)
+                index += 1
             else:
                 value = self.gen_property(value, suffix.Identifier().getText(), suffix)
+            index += 1
         return value
 
     def _default_value(self, ctx):

@@ -784,6 +784,8 @@ class SemanticAnalyzer(CompiscriptVisitor):
             else:
                 current_type = self._apply_suffix(current_type, suffix)
                 resolved_symbol = None
+            # Cada sufijo guarda su tipo y el miembro resuelto para la generacion de TAC.
+            self.annotate(suffix, current_type, resolved_symbol)
         ctx.resolved_symbol = resolved_symbol
         if resolved_symbol is None and not ctx.suffixOp():
             atom = ctx.primaryAtom()
