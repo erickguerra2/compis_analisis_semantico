@@ -4,6 +4,7 @@ from generated.CompiscriptVisitor import CompiscriptVisitor
 
 from tac import Emitter, Var
 
+from .classes import ClassesMixin
 from .control_flow import ControlFlowMixin
 from .expressions import ExpressionsMixin
 from .functions import FunctionsMixin
@@ -17,12 +18,11 @@ class UnsupportedConstructionsMixin:
         raise NotImplementedError("construcción no soportada todavía")
 
     visitFunctionDeclaration = _unsupported
-    visitClassDeclaration = _unsupported
     visitForeachStatement = _unsupported
     visitReturnStatement = _unsupported
 
 
-class TacGenerator(FunctionsMixin, ExpressionsMixin, ControlFlowMixin, UnsupportedConstructionsMixin, CompiscriptVisitor):
+class TacGenerator(ClassesMixin, FunctionsMixin, ExpressionsMixin, ControlFlowMixin, UnsupportedConstructionsMixin, CompiscriptVisitor):
     def __init__(self, analyzer, tree):
         self.analyzer = analyzer
         self.tree = tree
@@ -30,6 +30,7 @@ class TacGenerator(FunctionsMixin, ExpressionsMixin, ControlFlowMixin, Unsupport
         self.loop_stack = []
         self.try_depth = 0
         self.pending = []
+        self.class_declarations = {}
         self._symbol_vars = {}
         self._name_counts = {}
 
@@ -86,26 +87,11 @@ class TacGenerator(FunctionsMixin, ExpressionsMixin, ControlFlowMixin, Unsupport
             self._symbol_vars[key] = Var(name)
         return self._symbol_vars[key]
 
-    def gen_method_call(self, receiver, method_symbol, args_ctx, ctx):
-        raise NotImplementedError("construcción no soportada todavía")
-
     def gen_index(self, base, index_ctx, ctx):
-        raise NotImplementedError("construcción no soportada todavía")
-
-    def gen_property(self, base, name, ctx):
-        raise NotImplementedError("construcción no soportada todavía")
-
-    def gen_new(self, class_symbol, args_ctx, ctx):
-        raise NotImplementedError("construcción no soportada todavía")
-
-    def gen_this(self, ctx):
         raise NotImplementedError("construcción no soportada todavía")
 
     def gen_array_literal(self, ctx):
         raise NotImplementedError("construcción no soportada todavía")
 
     def gen_index_store(self, base, index_ctx, value, ctx):
-        raise NotImplementedError("construcción no soportada todavía")
-
-    def gen_property_store(self, base, name, value, ctx):
         raise NotImplementedError("construcción no soportada todavía")

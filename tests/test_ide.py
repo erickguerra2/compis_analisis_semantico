@@ -76,14 +76,16 @@ def test_compile_endpoint_returns_no_tac_when_there_are_errors():
         assert payload["strings"] == {}
 
 
-def test_compile_endpoint_reports_constructions_without_tac_yet():
-    source = "class C {}"
+def test_compile_endpoint_returns_tac_for_classes():
+    source = "class C { function f() {} } let c: C = new C(); c.f();"
     payload = _client().post("/compile", json={"source": source}).get_json()
 
     assert payload["success"] is True
-    assert payload["errors"] == []
-    assert payload["tac"] == []
-    assert payload["tacError"] == "construcción no soportada todavía"
+    assert payload["tacError"] is None
+    assert payload["tac"] == [
+        "begin_func main", "t0 = new C", "c = t0", "param c", "call C.f, 1", "end_func main",
+        "begin_func C.f", "return", "end_func C.f",
+    ]
 
 
 def test_compile_endpoint_exposes_memory_and_frames():
