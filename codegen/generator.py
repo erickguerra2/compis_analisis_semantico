@@ -4,6 +4,7 @@ from generated.CompiscriptVisitor import CompiscriptVisitor
 
 from tac import Emitter, Var
 
+from .arrays import ArraysMixin
 from .classes import ClassesMixin
 from .control_flow import ControlFlowMixin
 from .expressions import ExpressionsMixin
@@ -13,16 +14,7 @@ from symtable.symbol import SymbolCategory
 from symtable.scope import ScopeKind
 
 
-class UnsupportedConstructionsMixin:
-    def _unsupported(self, ctx):
-        raise NotImplementedError("construcción no soportada todavía")
-
-    visitFunctionDeclaration = _unsupported
-    visitForeachStatement = _unsupported
-    visitReturnStatement = _unsupported
-
-
-class TacGenerator(ClassesMixin, FunctionsMixin, ExpressionsMixin, ControlFlowMixin, UnsupportedConstructionsMixin, CompiscriptVisitor):
+class TacGenerator(ArraysMixin, ClassesMixin, FunctionsMixin, ExpressionsMixin, ControlFlowMixin, CompiscriptVisitor):
     def __init__(self, analyzer, tree):
         self.analyzer = analyzer
         self.tree = tree
@@ -86,12 +78,3 @@ class TacGenerator(ClassesMixin, FunctionsMixin, ExpressionsMixin, ControlFlowMi
             self._name_counts[symbol.name] = count + 1
             self._symbol_vars[key] = Var(name)
         return self._symbol_vars[key]
-
-    def gen_index(self, base, index_ctx, ctx):
-        raise NotImplementedError("construcción no soportada todavía")
-
-    def gen_array_literal(self, ctx):
-        raise NotImplementedError("construcción no soportada todavía")
-
-    def gen_index_store(self, base, index_ctx, value, ctx):
-        raise NotImplementedError("construcción no soportada todavía")
