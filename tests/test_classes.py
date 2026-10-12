@@ -121,6 +121,29 @@ def test_new_unknown_class_and_arguments_without_constructor_are_reported():
     assert "constructor-numero-argumentos-invalido" in _rules(analyzer)
 
 
+def test_subclass_inherits_constructor_of_nearest_base():
+    valid = _analyze(
+        """
+        class Animal {
+            let name: string;
+            function constructor(name: string) { this.name = name; }
+        }
+        class Dog: Animal {}
+        let dog: Dog = new Dog("Rex");
+        """
+    )
+    wrong_count = _analyze(
+        """
+        class Animal { function constructor(name: string) {} }
+        class Dog: Animal {}
+        let dog: Dog = new Dog();
+        """
+    )
+
+    assert not valid.errors.has_errors()
+    assert "llamada-numero-argumentos-invalido" in _rules(wrong_count)
+
+
 def test_this_is_only_valid_inside_methods():
     valid = _analyze(
         """

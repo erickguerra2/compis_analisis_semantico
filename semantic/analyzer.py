@@ -571,11 +571,8 @@ class SemanticAnalyzer(CompiscriptVisitor):
             )
             return None
 
-        constructor = (
-            class_symbol.class_scope.resolve_local("constructor")
-            if class_symbol.class_scope is not None
-            else None
-        )
+        # El constructor se hereda: se usa el de la clase mas cercana que lo declare.
+        constructor = self.symbol_table.resolve_member(name, "constructor")
         if constructor is None:
             if argument_ctxs:
                 token = ctx.start
@@ -773,6 +770,8 @@ class SemanticAnalyzer(CompiscriptVisitor):
                 if is_numeric(element_type):
                     base = numeric_result(base, element_type)
             return ArrayType(base, 1)
+        if isinstance(first, ArrayType):
+            return ArrayType(first.base, first.dimensions + 1)
         return ArrayType(first, 1)
 
     def visitLeftHandSide(self, ctx: CompiscriptParser.LeftHandSideContext):

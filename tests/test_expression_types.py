@@ -86,6 +86,18 @@ def test_array_literal_with_homogeneous_types_is_valid():
     assert not analyzer.errors.has_errors()
 
 
+def test_nested_array_literal_matches_multidimensional_type():
+    analyzer = _analyze("let m: integer[][] = [[1, 2], [3, 4]]; let row: integer[] = m[0]; let v: integer = m[1][0];")
+
+    assert not analyzer.errors.has_errors()
+
+
+def test_nested_array_literal_with_wrong_dimensions_is_reported():
+    analyzer = _analyze("let m: integer[] = [[1, 2], [3, 4]];")
+
+    assert "asignacion-tipo-incompatible" in _rules(analyzer)
+
+
 def test_array_index_must_be_integer():
     analyzer = _analyze('let arr: integer[] = [1, 2, 3]; let y: integer = arr["a"];')
 
