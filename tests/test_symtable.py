@@ -131,3 +131,52 @@ def test_memory_follows_source_order_across_scopes():
     symbols = {s.name: s for sc in result.analyzer.symbol_table.scopes for s in sc.symbols.values()}
     assert [symbols[n].offset for n in ["a", "b", "c"]] == [0, 4, 8]
     assert [symbols[n].offset for n in ["x", "y"]] == [12, 16]
+
+
+def _class_program(source):
+    from antlr4 import CommonTokenStream, InputStream
+    from generated.CompiscriptLexer import CompiscriptLexer
+    from generated.CompiscriptParser import CompiscriptParser
+    from semantic.analyzer import SemanticAnalyzer
+    from symtable.activation import MemoryLayout
+    tree = CompiscriptParser(CommonTokenStream(CompiscriptLexer(InputStream(source)))).program()
+    analyzer = SemanticAnalyzer()
+    analyzer.visit(tree)
+    assert not analyzer.errors.has_errors()
+    MemoryLayout(analyzer, tree)
+    return analyzer
+
+
+def test_field_offsets_put_inherited_fields_first():
+    analyzer = _class_program(
+        "class A { let x: integer; let y: string; } "
+        "class B : A { let z: boolean; } "
+        "class C : B { let w: integer; }"
+    )
+    layouts = analyzer.class_layouts
+    assert [(f.name, f.offset, f.storage, f.size) for f in layouts["C"]] == [
+        ("x", 0, "field", 4), ("y", 4, "field", 4), ("z", 8, "field", 4), ("w", 12, "field", 4)]
+    sizes = {s.name: s.size for s in analyzer.symbol_table.global_scope.symbols.values()}
+    assert sizes == {"A": 8, "B": 12, "C": 16}
+
+
+def test_methods_are_not_fields_and_redeclared_field_reuses_slot():
+    analyzer = _class_program(
+        "class A { let x: integer; function f() {} let y: integer; } "
+        "class B : A { let y: integer; let z: integer; function g() {} }"
+    )
+    assert [(f.name, f.offset) for f in analyzer.class_layouts["A"]] == [("x", 0), ("y", 4)]
+    assert [(f.name, f.offset) for f in analyzer.class_layouts["B"]] == [("x", 0), ("y", 4), ("z", 8)]
+    assert analyzer.class_layouts["B"][1].scope is not analyzer.class_layouts["A"][1].scope
+    empty = _class_program("class E { function f() {} }")
+    assert empty.class_layouts["E"] == []
+    assert empty.symbol_table.global_scope.symbols["E"].size == 0
+
+
+def test_method_record_reserves_this_before_parameters():
+    analyzer = _class_program(
+        "class P { let n: integer; function set(v: integer) { let old = this.n; this.n = v; } }"
+    )
+    record = analyzer.activation_records["P.set"]
+    assert [(s.name, s.offset, s.storage) for s in record.parameters + record.locals] == [
+        ("this", 12, "param"), ("v", 16, "param"), ("old", 20, "local")]

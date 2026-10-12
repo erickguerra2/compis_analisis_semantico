@@ -76,7 +76,7 @@ class MemoryLayout:
             symbol.size = size_of(symbol.type)
             if scope.kind is ScopeKind.CLASS:
                 symbol.storage = "field"
-                continue  # Herencia y offsets de campos corresponden al turno 4.
+                continue  # Sus offsets dependen de la herencia: ver _layout_classes.
             if owner is None:
                 symbol.storage, symbol.depth = "global", 0
                 symbol.offset = 4 * global_count
@@ -95,6 +95,40 @@ class MemoryLayout:
             for i, symbol in enumerate(record.locals):
                 symbol.offset = 12 + 4 * (len(record.parameters) + i)
         analyzer.activation_records = self.records
+        self._layout_classes()
+
+    def _layout_classes(self):
+        """Offsets de campos: primero los heredados, en el orden del padre, y luego los propios."""
+        self.class_layouts = {}
+        for scope in self.analyzer.symbol_table.scopes:
+            for symbol in scope.symbols.values():
+                if symbol.category is SymbolCategory.CLASS:
+                    self._class_fields(symbol)
+        self.analyzer.class_layouts = self.class_layouts
+
+    def _class_fields(self, class_symbol):
+        if class_symbol.name in self.class_layouts:
+            return self.class_layouts[class_symbol.name]
+        self.class_layouts[class_symbol.name] = []
+        parent = None
+        if class_symbol.parent_class is not None:
+            parent = self.analyzer.symbol_table.resolve_class(class_symbol.parent_class, class_symbol.scope)
+        fields = list(self._class_fields(parent)) if parent is not None else []
+        members = class_symbol.class_scope.symbols.values() if class_symbol.class_scope else []
+        for member in members:
+            if member.category not in {SymbolCategory.VARIABLE, SymbolCategory.CONSTANT}:
+                continue
+            inherited = next((index for index, field in enumerate(fields) if field.name == member.name), None)
+            if inherited is None:
+                member.offset = 4 * len(fields)
+                fields.append(member)
+            else:
+                # Un campo redeclarado en la subclase reutiliza el slot del heredado.
+                member.offset = fields[inherited].offset
+                fields[inherited] = member
+        class_symbol.size = 4 * len(fields)
+        self.class_layouts[class_symbol.name] = fields
+        return fields
 
     def _collect(self, ctx):
         from generated.CompiscriptParser import CompiscriptParser
